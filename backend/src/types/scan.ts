@@ -24,7 +24,7 @@ export interface ScanSummary {
   hostname: string;
   startTime: string;
   endTime: string;
-  status: "completed";
+  status: "queued" | "running" | "completed" | "failed";
   totalPagesCrawled: number;
   totalImagesFound: number;
   totalDocumentsLinked: number;

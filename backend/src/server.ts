@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadScannerConfig } from "./config/scannerConfig.js";
+import { SqliteScanStore } from "./db/sqliteScanStore.js";
 
 const host = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? "8080");
@@ -10,6 +11,9 @@ const app = buildApp({
 
 try {
   const scannerConfig = loadScannerConfig();
+  const scanStore = new SqliteScanStore();
+  scanStore.initialize();
+  scanStore.close();
 
   app.log.info(
     {
@@ -19,6 +23,8 @@ try {
     },
     "Scanner config loaded"
   );
+
+  app.log.info("SQLite storage initialized");
 
   await app.listen({ host, port });
 } catch (error) {
