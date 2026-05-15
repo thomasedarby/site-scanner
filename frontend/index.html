@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Scanner</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Internal Website Scanner</p>
+        <h1>Scan approved websites and review results quickly.</h1>
+        <p class="lede">
+          Start a scan, review summary stats, and download CSV or Mermaid output from one page.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>New Scan</h2>
+        <form id="scan-form" class="scan-form">
+          <label class="field">
+            <span>Website URL</span>
+            <input id="url" name="url" type="url" placeholder="https://example.com" required>
+          </label>
+
+          <label class="field">
+            <span>Max Pages</span>
+            <input id="maxPages" name="maxPages" type="number" min="1" step="1" placeholder="Optional">
+          </label>
+
+          <div class="actions">
+            <button id="submit-button" type="submit">Start Scan</button>
+            <span id="loading-state" class="loading hidden">Scanning in progress...</span>
+          </div>
+        </form>
+
+        <div id="error-box" class="message error hidden" role="alert"></div>
+        <div id="success-box" class="message success hidden"></div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Latest Result</h2>
+          </div>
+          <div id="latest-scan-empty" class="empty-state">No scan has been run in this session.</div>
+          <div id="latest-scan" class="hidden">
+            <dl id="summary-grid" class="summary-grid"></dl>
+
+            <div class="link-row">
+              <a id="details-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Details</a>
+              <a id="csv-link" class="button secondary" href="#" target="_blank" rel="noreferrer">CSV</a>
+              <a id="sitemap-download-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Download Mermaid</a>
+              <a id="compare-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Compare</a>
+              <button id="view-sitemap" class="button tertiary" type="button">View Diagram</button>
+              <button id="copy-sitemap" class="button tertiary" type="button">Copy Mermaid</button>
+              <button id="toggle-raw-sitemap" class="button tertiary hidden" type="button">Show Mermaid Text</button>
+            </div>
+
+            <div id="sitemap-panel" class="sitemap-panel hidden">
+              <div id="sitemap-loading" class="loading hidden">Loading diagram...</div>
+              <div id="sitemap-error" class="message error hidden" role="alert"></div>
+              <div id="sitemap-diagram-shell" class="diagram-shell hidden">
+                <div id="sitemap-diagram" class="diagram-canvas"></div>
+              </div>
+              <div id="sitemap-raw-shell" class="raw-shell hidden">
+                <pre id="sitemap-output"></pre>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <h2>Previous Scans</h2>
+            <button id="refresh-scans" class="button tertiary" type="button">Refresh</button>
+          </div>
+          <div id="scan-list-error" class="message error hidden" role="alert"></div>
+          <div id="scan-list-empty" class="empty-state">No scans stored yet.</div>
+          <ul id="scan-list" class="scan-list hidden"></ul>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
