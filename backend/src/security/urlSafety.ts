@@ -31,6 +31,14 @@ function normaliseHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/\.+$/, "");
 }
 
+function stripIpv6Brackets(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+
+  return hostname;
+}
+
 export function normaliseUrl(
   inputUrl: string,
   baseUrl?: string,
@@ -61,7 +69,7 @@ export function isAllowedDomain(url: URL | string, allowedDomains: string[]): bo
 }
 
 export function isPrivateOrLocalHostname(hostname: string): boolean {
-  const normalisedHostname = normaliseHostname(hostname);
+  const normalisedHostname = normaliseHostname(stripIpv6Brackets(hostname));
 
   if (normalisedHostname === "localhost" || normalisedHostname === "0.0.0.0") {
     return true;
@@ -69,34 +77,56 @@ export function isPrivateOrLocalHostname(hostname: string): boolean {
 
   const ipv4 = parseIpv4(normalisedHostname);
 
-  if (!ipv4) {
-    return false;
+  if (ipv4) {
+    const [first, second, third, fourth] = ipv4;
+
+    if (first === 127) {
+      return true;
+    }
+
+    if (first === 10) {
+      return true;
+    }
+
+    if (first === 172 && second >= 16 && second <= 31) {
+      return true;
+    }
+
+    if (first === 192 && second === 168) {
+      return true;
+    }
+
+    if (first === 169 && second === 254) {
+      return true;
+    }
+
+    if (first === 169 && second === 254 && third === 169 && fourth === 254) {
+      return true;
+    }
   }
 
-  const [first, second, third, fourth] = ipv4;
-
-  if (first === 127) {
+  if (normalisedHostname === "::1") {
     return true;
   }
 
-  if (first === 10) {
-    return true;
+  const ipv4MappedMatch = normalisedHostname.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+
+  if (ipv4MappedMatch) {
+    return isPrivateOrLocalHostname(ipv4MappedMatch[1]);
   }
 
-  if (first === 172 && second >= 16 && second <= 31) {
-    return true;
-  }
+  const firstHextet = normalisedHostname.split(":")[0];
 
-  if (first === 192 && second === 168) {
-    return true;
-  }
+  if (/^[0-9a-f]{1,4}$/i.test(firstHextet)) {
+    const firstHextetValue = Number.parseInt(firstHextet, 16);
 
-  if (first === 169 && second === 254) {
-    return true;
-  }
+    if (firstHextetValue >= 0xfc00 && firstHextetValue <= 0xfdff) {
+      return true;
+    }
 
-  if (first === 169 && second === 254 && third === 169 && fourth === 254) {
-    return true;
+    if (firstHextetValue >= 0xfe80 && firstHextetValue <= 0xfebf) {
+      return true;
+    }
   }
 
   return false;

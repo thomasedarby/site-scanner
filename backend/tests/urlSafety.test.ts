@@ -55,6 +55,8 @@ describe("isPrivateOrLocalHostname", () => {
     expect(isPrivateOrLocalHostname("localhost")).toBe(true);
     expect(isPrivateOrLocalHostname("127.0.0.1")).toBe(true);
     expect(isPrivateOrLocalHostname("0.0.0.0")).toBe(true);
+    expect(isPrivateOrLocalHostname("::1")).toBe(true);
+    expect(isPrivateOrLocalHostname("[::1]")).toBe(true);
   });
 
   it("rejects private and link-local IPv4 ranges", () => {
@@ -66,10 +68,25 @@ describe("isPrivateOrLocalHostname", () => {
     expect(isPrivateOrLocalHostname("169.254.169.254")).toBe(true);
   });
 
+  it("rejects private and link-local IPv6 ranges", () => {
+    expect(isPrivateOrLocalHostname("fc00::1")).toBe(true);
+    expect(isPrivateOrLocalHostname("fd12:3456:789a::1")).toBe(true);
+    expect(isPrivateOrLocalHostname("fe80::1")).toBe(true);
+    expect(isPrivateOrLocalHostname("febf::abcd")).toBe(true);
+  });
+
+  it("rejects IPv4-mapped local and private addresses where practical", () => {
+    expect(isPrivateOrLocalHostname("::ffff:127.0.0.1")).toBe(true);
+    expect(isPrivateOrLocalHostname("::ffff:10.0.0.5")).toBe(true);
+    expect(isPrivateOrLocalHostname("::ffff:192.168.1.5")).toBe(true);
+  });
+
   it("allows public hostnames and public IPv4 addresses", () => {
     expect(isPrivateOrLocalHostname("example.com")).toBe(false);
     expect(isPrivateOrLocalHostname("8.8.8.8")).toBe(false);
     expect(isPrivateOrLocalHostname("172.32.0.1")).toBe(false);
+    expect(isPrivateOrLocalHostname("2001:4860:4860::8888")).toBe(false);
+    expect(isPrivateOrLocalHostname("::ffff:8.8.8.8")).toBe(false);
   });
 });
 
