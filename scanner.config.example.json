@@ -1,0 +1,15 @@
+{
+  "allowedDomains": [
+    "travelderbyshire.co.uk",
+    "www.travelderbyshire.co.uk",
+    "derbyshire.gov.uk",
+    "www.derbyshire.gov.uk"
+  ],
+  "defaultMaxPages": 500,
+  "maxAllowedPages": 2000,
+  "crawlDelayMs": 500,
+  "requestTimeoutMs": 15000,
+  "stripQueryStrings": true,
+  "respectRobotsTxt": true,
+  "userAgent": "Internal-SiteScanner/0.1"
+}
