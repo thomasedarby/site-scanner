@@ -6,6 +6,7 @@ COPY backend/package.json backend/package-lock.json* ./
 RUN npm install
 
 COPY backend/ ./
+COPY frontend/ /app/frontend/
 
 RUN npm run build
 
