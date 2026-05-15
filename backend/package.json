@@ -14,10 +14,12 @@
   },
   "dependencies": {
     "cheerio": "^1.1.0",
-    "fastify": "^5.3.3"
+    "fastify": "^5.3.3",
+    "sql.js": "^1.13.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/sql.js": "^1.4.9",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

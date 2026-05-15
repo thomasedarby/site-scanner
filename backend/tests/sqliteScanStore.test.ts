@@ -68,20 +68,20 @@ afterEach(() => {
 });
 
 describe("SqliteScanStore", () => {
-  it("initializes the database and creates tables", () => {
+  it("initializes the database and creates tables", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
-    store.close();
+    await store.initialize();
+    await store.close();
 
     expect(existsSync(path.join(tempDir, "store.sqlite"))).toBe(true);
     expect(readdirSync(tempDir)).toContain("store.sqlite");
   });
 
-  it("creates and saves a completed scan with pages", () => {
+  it("creates and saves a completed scan with pages", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
@@ -99,73 +99,73 @@ describe("SqliteScanStore", () => {
       ]
     });
 
-    store.initialize();
-    store.saveScan(scan);
+    await store.initialize();
+    await store.saveScan(scan);
 
-    const savedScan = store.getScanById("scan-1");
+    const savedScan = await store.getScanById("scan-1");
 
-    store.close();
+    await store.close();
 
     expect(savedScan?.id).toBe("scan-1");
     expect(savedScan?.pages).toHaveLength(2);
     expect(savedScan?.status).toBe("completed");
   });
 
-  it("gets a scan by id", () => {
+  it("gets a scan by id", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
-    store.saveScan(createScan("scan-1"));
+    await store.initialize();
+    await store.saveScan(createScan("scan-1"));
 
-    const scan = store.getScanById("scan-1");
+    const scan = await store.getScanById("scan-1");
 
-    store.close();
+    await store.close();
 
     expect(scan?.rootUrl).toBe("https://example.com/");
     expect(scan?.pages[0].url).toBe("https://example.com/");
   });
 
-  it("lists scans newest first", () => {
+  it("lists scans newest first", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
-    store.saveScan(
+    await store.initialize();
+    await store.saveScan(
       createScan("scan-older", {
         endTime: "2026-01-01T00:00:01.000Z"
       })
     );
-    store.saveScan(
+    await store.saveScan(
       createScan("scan-newer", {
         endTime: "2026-01-02T00:00:01.000Z"
       })
     );
 
-    const scans = store.listScans();
+    const scans = await store.listScans();
 
-    store.close();
+    await store.close();
 
     expect(scans.map((scan) => scan.id)).toEqual(["scan-newer", "scan-older"]);
   });
 
-  it("gets the previous completed scan for the same origin", () => {
+  it("gets the previous completed scan for the same origin", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
-    store.saveScan(
+    await store.initialize();
+    await store.saveScan(
       createScan("scan-old", {
         endTime: "2026-01-01T00:00:01.000Z"
       })
     );
-    store.saveScan(
+    await store.saveScan(
       createScan("scan-other-origin", {
         origin: "https://other.example.com",
         hostname: "other.example.com",
@@ -173,39 +173,39 @@ describe("SqliteScanStore", () => {
         endTime: "2026-01-02T00:00:01.000Z"
       })
     );
-    store.saveScan(
+    await store.saveScan(
       createScan("scan-current", {
         endTime: "2026-01-03T00:00:01.000Z"
       })
     );
 
-    const previous = store.getPreviousCompletedScan(
+    const previous = await store.getPreviousCompletedScan(
       "https://example.com",
       "2026-01-03T00:00:01.000Z",
       "scan-current"
     );
 
-    store.close();
+    await store.close();
 
     expect(previous?.id).toBe("scan-old");
   });
 
-  it("returns null for a missing scan", () => {
+  it("returns null for a missing scan", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
+    await store.initialize();
 
-    const scan = store.getScanById("missing");
+    const scan = await store.getScanById("missing");
 
-    store.close();
+    await store.close();
 
     expect(scan).toBeNull();
   });
 
-  it("preserves page fields when reloading a scan", () => {
+  it("preserves page fields when reloading a scan", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
@@ -229,43 +229,43 @@ describe("SqliteScanStore", () => {
       crawlError: "Timeout"
     });
 
-    store.initialize();
-    store.saveScan(
+    await store.initialize();
+    await store.saveScan(
       createScan("scan-1", {
         pages: [page]
       })
     );
 
-    const savedScan = store.getScanById("scan-1");
+    const savedScan = await store.getScanById("scan-1");
 
-    store.close();
+    await store.close();
 
     expect(savedScan?.pages[0]).toEqual(page);
   });
 
-  it("replaces an incomplete scan safely by reusing the same id", () => {
+  it("replaces an incomplete scan safely by reusing the same id", async () => {
     const tempDir = createTempDir();
     const store = new SqliteScanStore({
       databasePath: path.join(tempDir, "store.sqlite")
     });
 
-    store.initialize();
-    store.saveScan(
+    await store.initialize();
+    await store.saveScan(
       createScan("scan-1", {
         status: "running",
         pages: [createPage({ title: "Partial" })]
       })
     );
-    store.saveScan(
+    await store.saveScan(
       createScan("scan-1", {
         status: "completed",
         pages: [createPage({ title: "Complete" })]
       })
     );
 
-    const scan = store.getScanById("scan-1");
+    const scan = await store.getScanById("scan-1");
 
-    store.close();
+    await store.close();
 
     expect(scan?.status).toBe("completed");
     expect(scan?.pages).toHaveLength(1);

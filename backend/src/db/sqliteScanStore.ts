@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+
+import initSqlJs, { type Database, type QueryExecResult, type SqlJsStatic } from "sql.js";
 
 import type { ScanPage, ScanRecord, ScanSummary } from "../types/scan.js";
 
@@ -97,6 +98,24 @@ function mapPageRow(row: ScanPageRow): ScanPage {
   };
 }
 
+function getRows<T>(result: QueryExecResult[]): T[] {
+  if (result.length === 0) {
+    return [];
+  }
+
+  const [{ columns, values }] = result;
+
+  return values.map((valueRow) => {
+    const row: Record<string, unknown> = {};
+
+    columns.forEach((column, index) => {
+      row[column] = valueRow[index];
+    });
+
+    return row as T;
+  });
+}
+
 export function resolveSqliteScanStoreInfo(
   options: SqliteScanStoreOptions = {}
 ): SqliteScanStoreInfo {
@@ -132,7 +151,10 @@ export function resolveSqliteScanStoreInfo(
 export class SqliteScanStore {
   readonly databasePath: string;
   readonly dataDir: string;
-  private readonly database: DatabaseSync;
+
+  private static sqlJsPromise: Promise<SqlJsStatic> | null = null;
+  private database: Database | null = null;
+  private readonly ready: Promise<void>;
 
   constructor(options: SqliteScanStoreOptions = {}) {
     const info = resolveSqliteScanStoreInfo(options);
@@ -144,12 +166,46 @@ export class SqliteScanStore {
       mkdirSync(this.dataDir, { recursive: true });
     }
 
-    this.database = new DatabaseSync(this.databasePath);
-    this.database.exec("PRAGMA foreign_keys = ON");
+    this.ready = this.openDatabase();
   }
 
-  initialize() {
-    this.database.exec(`
+  private static loadSqlJs() {
+    if (!SqliteScanStore.sqlJsPromise) {
+      SqliteScanStore.sqlJsPromise = initSqlJs();
+    }
+
+    return SqliteScanStore.sqlJsPromise;
+  }
+
+  private async openDatabase() {
+    const SQL = await SqliteScanStore.loadSqlJs();
+    const fileBuffer = existsSync(this.databasePath)
+      ? readFileSync(this.databasePath)
+      : undefined;
+
+    this.database = new SQL.Database(fileBuffer);
+    this.database.run("PRAGMA foreign_keys = ON");
+  }
+
+  private async getDatabase() {
+    await this.ready;
+
+    if (!this.database) {
+      throw new Error("SQLite database is not open");
+    }
+
+    return this.database;
+  }
+
+  private async persist() {
+    const database = await this.getDatabase();
+    writeFileSync(this.databasePath, Buffer.from(database.export()));
+  }
+
+  async initialize() {
+    const database = await this.getDatabase();
+
+    database.run(`
       CREATE TABLE IF NOT EXISTS scans (
         id TEXT PRIMARY KEY,
         root_url TEXT NOT NULL,
@@ -195,165 +251,187 @@ export class SqliteScanStore {
       CREATE INDEX IF NOT EXISTS idx_scans_origin_end_time
       ON scans(origin, end_time DESC);
     `);
+
+    await this.persist();
   }
 
-  close() {
+  async close() {
+    await this.ready;
+
+    if (!this.database) {
+      return;
+    }
+
+    await this.persist();
     this.database.close();
+    this.database = null;
   }
 
-  saveScan(scan: ScanRecord) {
-    const insertScan = this.database.prepare(`
-      INSERT INTO scans (
-        id, root_url, origin, hostname, start_time, end_time, status,
-        total_pages_crawled, total_images_found, total_documents_linked,
-        broken_internal_links, pages_missing_title, pages_missing_meta_description,
-        pages_with_no_h1, mermaid_sitemap, error_message
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?,
-        ?, ?, ?,
-        ?, ?, ?
-      )
-    `);
-    const insertPage = this.database.prepare(`
-      INSERT INTO scan_pages (
-        scan_id, page_order, url, normalized_url, path, parent_url,
-        http_status, final_url, title, has_meta_description, h1_count,
-        internal_link_count, external_link_count, image_count,
-        document_link_count, word_count, content_hash, crawl_error
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?
-      )
-    `);
-    const deletePages = this.database.prepare("DELETE FROM scan_pages WHERE scan_id = ?");
-    const deleteScan = this.database.prepare("DELETE FROM scans WHERE id = ?");
-
-    this.database.exec("BEGIN");
+  async saveScan(scan: ScanRecord) {
+    const database = await this.getDatabase();
 
     try {
-      deletePages.run(scan.id);
-      deleteScan.run(scan.id);
-      insertScan.run(
-        scan.id,
-        scan.rootUrl,
-        scan.origin,
-        scan.hostname,
-        scan.startTime,
-        scan.endTime,
-        scan.status,
-        scan.totalPagesCrawled,
-        scan.totalImagesFound,
-        scan.totalDocumentsLinked,
-        scan.brokenInternalLinks,
-        scan.pagesMissingTitle,
-        scan.pagesMissingMetaDescription,
-        scan.pagesWithNoH1,
-        scan.mermaidSitemap,
-        scan.errorMessage
+      database.run("BEGIN");
+      database.run("DELETE FROM scan_pages WHERE scan_id = ?", [scan.id]);
+      database.run("DELETE FROM scans WHERE id = ?", [scan.id]);
+      database.run(
+        `
+          INSERT INTO scans (
+            id, root_url, origin, hostname, start_time, end_time, status,
+            total_pages_crawled, total_images_found, total_documents_linked,
+            broken_internal_links, pages_missing_title, pages_missing_meta_description,
+            pages_with_no_h1, mermaid_sitemap, error_message
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          scan.id,
+          scan.rootUrl,
+          scan.origin,
+          scan.hostname,
+          scan.startTime,
+          scan.endTime,
+          scan.status,
+          scan.totalPagesCrawled,
+          scan.totalImagesFound,
+          scan.totalDocumentsLinked,
+          scan.brokenInternalLinks,
+          scan.pagesMissingTitle,
+          scan.pagesMissingMetaDescription,
+          scan.pagesWithNoH1,
+          scan.mermaidSitemap,
+          scan.errorMessage
+        ]
       );
 
       scan.pages.forEach((page, index) => {
-        insertPage.run(
-          scan.id,
-          index,
-          page.url,
-          page.normalizedUrl,
-          page.path,
-          page.parentUrl,
-          page.httpStatus,
-          page.finalUrl,
-          page.title,
-          page.hasMetaDescription ? 1 : 0,
-          page.h1Count,
-          page.internalLinkCount,
-          page.externalLinkCount,
-          page.imageCount,
-          page.documentLinkCount,
-          page.wordCount,
-          page.contentHash,
-          page.crawlError
+        database.run(
+          `
+            INSERT INTO scan_pages (
+              scan_id, page_order, url, normalized_url, path, parent_url,
+              http_status, final_url, title, has_meta_description, h1_count,
+              internal_link_count, external_link_count, image_count,
+              document_link_count, word_count, content_hash, crawl_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            scan.id,
+            index,
+            page.url,
+            page.normalizedUrl,
+            page.path,
+            page.parentUrl,
+            page.httpStatus,
+            page.finalUrl,
+            page.title,
+            page.hasMetaDescription ? 1 : 0,
+            page.h1Count,
+            page.internalLinkCount,
+            page.externalLinkCount,
+            page.imageCount,
+            page.documentLinkCount,
+            page.wordCount,
+            page.contentHash,
+            page.crawlError
+          ]
         );
       });
 
-      this.database.exec("COMMIT");
+      database.run("COMMIT");
     } catch (error) {
-      this.database.exec("ROLLBACK");
+      database.run("ROLLBACK");
       throw error;
     }
+
+    await this.persist();
   }
 
-  getScanById(id: string): ScanRecord | null {
-    const summaryRow = this.database
-      .prepare("SELECT * FROM scans WHERE id = ?")
-      .get(id) as ScanSummaryRow | undefined;
+  async getScanById(id: string): Promise<ScanRecord | null> {
+    const database = await this.getDatabase();
+    const summaryRows = getRows<ScanSummaryRow>(
+      database.exec("SELECT * FROM scans WHERE id = ?", [id])
+    );
 
-    if (!summaryRow) {
+    if (summaryRows.length === 0) {
       return null;
     }
 
-    const pages = this.database
-      .prepare("SELECT * FROM scan_pages WHERE scan_id = ? ORDER BY page_order ASC")
-      .all(id) as unknown as ScanPageRow[];
+    const pageRows = getRows<ScanPageRow>(
+      database.exec(
+        "SELECT * FROM scan_pages WHERE scan_id = ? ORDER BY page_order ASC",
+        [id]
+      )
+    );
 
     return {
-      ...mapSummaryRow(summaryRow),
-      pages: pages.map(mapPageRow)
+      ...mapSummaryRow(summaryRows[0]),
+      pages: pageRows.map(mapPageRow)
     };
   }
 
-  listScans(): ScanSummary[] {
-    const rows = this.database
-      .prepare("SELECT * FROM scans ORDER BY end_time DESC, id DESC")
-      .all() as unknown as ScanSummaryRow[];
+  async listScans(): Promise<ScanSummary[]> {
+    const database = await this.getDatabase();
+    const rows = getRows<ScanSummaryRow>(
+      database.exec("SELECT * FROM scans ORDER BY end_time DESC, id DESC")
+    );
 
     return rows.map(mapSummaryRow);
   }
 
-  getPreviousCompletedScan(origin: string, beforeEndTime: string, excludeScanId?: string): ScanRecord | null {
-    const query = excludeScanId
-      ? `
-        SELECT * FROM scans
-        WHERE origin = ?
-          AND status = 'completed'
-          AND end_time < ?
-          AND id != ?
-        ORDER BY end_time DESC, id DESC
-        LIMIT 1
-      `
-      : `
-        SELECT * FROM scans
-        WHERE origin = ?
-          AND status = 'completed'
-          AND end_time < ?
-        ORDER BY end_time DESC, id DESC
-        LIMIT 1
-      `;
-    const summaryRow = (excludeScanId
-      ? this.database.prepare(query).get(origin, beforeEndTime, excludeScanId)
-      : this.database.prepare(query).get(origin, beforeEndTime)) as ScanSummaryRow | undefined;
+  async getPreviousCompletedScan(
+    origin: string,
+    beforeEndTime: string,
+    excludeScanId?: string
+  ): Promise<ScanRecord | null> {
+    const database = await this.getDatabase();
+    const rows = excludeScanId
+      ? getRows<ScanSummaryRow>(
+          database.exec(
+            `
+              SELECT * FROM scans
+              WHERE origin = ?
+                AND status = 'completed'
+                AND end_time < ?
+                AND id != ?
+              ORDER BY end_time DESC, id DESC
+              LIMIT 1
+            `,
+            [origin, beforeEndTime, excludeScanId]
+          )
+        )
+      : getRows<ScanSummaryRow>(
+          database.exec(
+            `
+              SELECT * FROM scans
+              WHERE origin = ?
+                AND status = 'completed'
+                AND end_time < ?
+              ORDER BY end_time DESC, id DESC
+              LIMIT 1
+            `,
+            [origin, beforeEndTime]
+          )
+        );
 
-    if (!summaryRow) {
+    if (rows.length === 0) {
       return null;
     }
 
-    return this.getScanById(summaryRow.id);
+    return this.getScanById(rows[0].id);
   }
 
-  deleteScan(id: string) {
-    const deletePages = this.database.prepare("DELETE FROM scan_pages WHERE scan_id = ?");
-    const deleteScan = this.database.prepare("DELETE FROM scans WHERE id = ?");
-
-    this.database.exec("BEGIN");
+  async deleteScan(id: string) {
+    const database = await this.getDatabase();
 
     try {
-      deletePages.run(id);
-      deleteScan.run(id);
-      this.database.exec("COMMIT");
+      database.run("BEGIN");
+      database.run("DELETE FROM scan_pages WHERE scan_id = ?", [id]);
+      database.run("DELETE FROM scans WHERE id = ?", [id]);
+      database.run("COMMIT");
     } catch (error) {
-      this.database.exec("ROLLBACK");
+      database.run("ROLLBACK");
       throw error;
     }
+
+    await this.persist();
   }
 }

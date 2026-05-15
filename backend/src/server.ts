@@ -12,8 +12,8 @@ const app = buildApp({
 try {
   const scannerConfig = loadScannerConfig();
   const scanStore = new SqliteScanStore();
-  scanStore.initialize();
-  scanStore.close();
+  await scanStore.initialize();
+  await scanStore.close();
 
   app.log.info(
     {
