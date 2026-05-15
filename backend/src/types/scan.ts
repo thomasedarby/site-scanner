@@ -34,6 +34,10 @@ export interface ScanSummary {
   pagesWithNoH1: number;
   mermaidSitemap: string;
   errorMessage: string | null;
+  maxPagesRequested?: number;
+  maxPageLimitReached?: boolean;
+  crawlDelayMs?: number;
+  userAgent?: string;
 }
 
 export interface ScanRecord extends ScanSummary {

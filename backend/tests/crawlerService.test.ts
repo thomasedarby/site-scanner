@@ -29,6 +29,7 @@ function createResponse(init: MockResponseInit): FetchResponseLike {
 function createCrawlerConfig(overrides: Partial<CrawlConfig> = {}): CrawlConfig {
   return {
     allowedDomains: ["example.com"],
+    crawlAllowedHostVariants: true,
     crawlDelayMs: 0,
     maxPages: 10,
     requestTimeoutMs: 1000,
@@ -295,5 +296,168 @@ describe("CrawlerService", () => {
     expect(result.pages).toHaveLength(2);
     expect(result.pages[1].crawlError).toContain("Network failure");
     expect(result.pages[0].crawlError).toBeNull();
+  });
+
+  it("allows a non-www root to follow allowlisted www links", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://example.com/") {
+        return createResponse({
+          body: `
+            <html><head><title>Home</title><meta name="description" content="Home"></head>
+            <body><h1>Home</h1><a href="https://www.example.com/about">About</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://www.example.com/about") {
+        return createResponse({
+          body: `<html><head><title>About</title></head><body><h1>About</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com", "www.example.com"]
+      })
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(calls).toContain("https://www.example.com/about");
+  });
+
+  it("allows a www root to follow allowlisted non-www links", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://www.example.com/") {
+        return createResponse({
+          body: `
+            <html><head><title>Home</title><meta name="description" content="Home"></head>
+            <body><h1>Home</h1><a href="https://example.com/about">About</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://example.com/about") {
+        return createResponse({
+          body: `<html><head><title>About</title></head><body><h1>About</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://www.example.com/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com", "www.example.com"]
+      })
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(calls).toContain("https://example.com/about");
+  });
+
+  it("does not crawl unrelated allowlisted domains during the same scan", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      return createResponse({
+        body: `
+          <html><head><title>Home</title><meta name="description" content="Home"></head>
+          <body><h1>Home</h1><a href="https://another-site.org/about">Elsewhere</a></body></html>
+        `,
+        headers: { "content-type": "text/html" },
+        url: input
+      });
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com", "www.example.com", "another-site.org"]
+      })
+    });
+
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0].externalLinkCount).toBe(1);
+    expect(calls).toEqual(["https://example.com/"]);
+  });
+
+  it("does not crawl an unallowlisted host variant", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      return createResponse({
+        body: `
+          <html><head><title>Home</title><meta name="description" content="Home"></head>
+          <body><h1>Home</h1><a href="https://www.example.com/about">About</a></body></html>
+        `,
+        headers: { "content-type": "text/html" },
+        url: input
+      });
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com"]
+      })
+    });
+
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0].externalLinkCount).toBe(1);
+    expect(calls).toEqual(["https://example.com/"]);
+  });
+
+  it("keeps strict same-origin crawling when host variants are disabled", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      return createResponse({
+        body: `
+          <html><head><title>Home</title><meta name="description" content="Home"></head>
+          <body><h1>Home</h1><a href="https://www.example.com/about">About</a></body></html>
+        `,
+        headers: { "content-type": "text/html" },
+        url: input
+      });
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com", "www.example.com"],
+        crawlAllowedHostVariants: false
+      })
+    });
+
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0].externalLinkCount).toBe(1);
+    expect(calls).toEqual(["https://example.com/"]);
   });
 });

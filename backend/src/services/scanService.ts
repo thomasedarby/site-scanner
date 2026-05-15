@@ -126,6 +126,7 @@ export class RealScanService implements ScanService {
     try {
       const crawlConfig: CrawlConfig = {
         allowedDomains: config.allowedDomains,
+        crawlAllowedHostVariants: config.crawlAllowedHostVariants,
         crawlDelayMs: config.crawlDelayMs,
         maxPages: Math.min(input.maxPages, config.maxAllowedPages),
         requestTimeoutMs: config.requestTimeoutMs,
@@ -150,7 +151,13 @@ export class RealScanService implements ScanService {
 
       await this.store.saveScan(completedRecord);
 
-      return toSummary(completedRecord);
+      return {
+        ...toSummary(completedRecord),
+        crawlDelayMs: config.crawlDelayMs,
+        maxPageLimitReached: completedRecord.totalPagesCrawled >= input.maxPages,
+        maxPagesRequested: input.maxPages,
+        userAgent: config.userAgent
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Scan failed";
       const failedRecord = buildScanRecord({

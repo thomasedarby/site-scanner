@@ -13,6 +13,7 @@ import type { ScanPage } from "../src/types/scan.js";
 function createScannerConfig(overrides: Partial<LoadedScannerConfig> = {}): LoadedScannerConfig {
   return {
     allowedDomains: ["example.com"],
+    crawlAllowedHostVariants: true,
     defaultMaxPages: 10,
     maxAllowedPages: 100,
     crawlDelayMs: 0,
@@ -221,6 +222,23 @@ describe("scan routes", () => {
       sitemap: `/api/scans/${payload.id}/sitemap.mmd`
     });
     expect(detailResponse.json().pages).toHaveLength(2);
+  });
+
+  it("accepts a scan URL without a protocol and normalizes it to https", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "example.com"
+      }
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().rootUrl).toBe("https://example.com/");
   });
 
   it("list scans reads from storage", async () => {

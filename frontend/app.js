@@ -20,9 +20,11 @@ const latestScanEmpty = document.getElementById("latest-scan-empty");
 const summaryGrid = document.getElementById("summary-grid");
 const detailsLink = document.getElementById("details-link");
 const csvLink = document.getElementById("csv-link");
+const pagesCsvLink = document.getElementById("pages-csv-link");
 const sitemapDownloadLink = document.getElementById("sitemap-download-link");
 const compareLink = document.getElementById("compare-link");
 const viewSitemapButton = document.getElementById("view-sitemap");
+const openSitemapViewerButton = document.getElementById("open-sitemap-viewer");
 const copySitemapButton = document.getElementById("copy-sitemap");
 const toggleRawSitemapButton = document.getElementById("toggle-raw-sitemap");
 const sitemapPanel = document.getElementById("sitemap-panel");
@@ -36,14 +38,26 @@ const refreshScansButton = document.getElementById("refresh-scans");
 const scanList = document.getElementById("scan-list");
 const scanListEmpty = document.getElementById("scan-list-empty");
 const scanListError = document.getElementById("scan-list-error");
+const pageFilterInput = document.getElementById("page-filter");
+const copyPagesButton = document.getElementById("copy-pages-button");
+const pageTableBody = document.getElementById("page-table-body");
+const pagesEmpty = document.getElementById("pages-empty");
+const tabButtons = Array.from(document.querySelectorAll("[data-tab]"));
+const tabPanels = {
+  "new-scan": document.getElementById("panel-new-scan"),
+  results: document.getElementById("panel-results"),
+  "previous-scans": document.getElementById("panel-previous-scans")
+};
 
-let latestScan = null;
+let currentScanSummary = null;
+let currentScanDetails = null;
 let sitemapSource = "";
 let sitemapLoadedForScanId = null;
 let renderSequence = 0;
+let currentPageFilter = "";
 
 function normaliseApiBaseUrl(value) {
-  const trimmedValue = value.trim();
+  const trimmedValue = String(value || "").trim();
 
   if (trimmedValue === "" || trimmedValue === "/") {
     return "";
@@ -57,6 +71,28 @@ function joinApi(path) {
   const baseUrl = normaliseApiBaseUrl(API_BASE_URL);
 
   return baseUrl ? `${baseUrl}${normalisedPath}` : normalisedPath;
+}
+
+function buildScanLinks(id) {
+  return {
+    compare: `/api/scans/${id}/compare`,
+    csv: `/api/scans/${id}/pages.csv`,
+    details: `/api/scans/${id}`,
+    sitemap: `/api/scans/${id}/sitemap.mmd`
+  };
+}
+
+function buildSitemapViewerUrl(scanId) {
+  const viewerUrl = new URL("/sitemap-viewer.html", window.location.href);
+  viewerUrl.searchParams.set("id", scanId);
+
+  const baseUrl = normaliseApiBaseUrl(API_BASE_URL);
+
+  if (baseUrl) {
+    viewerUrl.searchParams.set("apiBase", baseUrl);
+  }
+
+  return viewerUrl.toString();
 }
 
 function setHidden(element, hidden) {
@@ -92,6 +128,29 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function formatDuration(startTime, endTime) {
+  if (!startTime || !endTime) {
+    return "N/A";
+  }
+
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
+    return "N/A";
+  }
+
+  const totalSeconds = Math.round((end - start) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds}s`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -99,6 +158,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatMaybeValue(value, fallback = "N/A") {
+  return value === undefined || value === null || value === "" ? fallback : String(value);
 }
 
 function clearSitemapState() {
@@ -114,7 +177,7 @@ function clearSitemapState() {
   setHidden(sitemapRawShell, true);
   setHidden(toggleRawSitemapButton, true);
   toggleRawSitemapButton.textContent = "Show Mermaid Text";
-  viewSitemapButton.textContent = "View Diagram";
+  viewSitemapButton.textContent = "View Diagram Inline";
 }
 
 async function copyText(text) {
@@ -134,41 +197,141 @@ async function copyText(text) {
   document.body.removeChild(helper);
 }
 
-function renderSummary(scan) {
+function switchTab(tabName) {
+  for (const button of tabButtons) {
+    button.classList.toggle("active", button.dataset.tab === tabName);
+  }
+
+  for (const [panelName, panel] of Object.entries(tabPanels)) {
+    setHidden(panel, panelName !== tabName);
+  }
+}
+
+function getActiveLinks() {
+  if (!currentScanSummary?.id) {
+    return null;
+  }
+
+  return currentScanSummary.links ?? buildScanLinks(currentScanSummary.id);
+}
+
+function renderSummary(scanSummary, scanDetails) {
+  const scan = scanDetails ?? scanSummary;
+  const pagesVsLimit = scanSummary?.maxPagesRequested
+    ? `${scan.totalPagesCrawled} / ${scanSummary.maxPagesRequested}`
+    : `${scan.totalPagesCrawled}`;
+
   const items = [
-    ["Status", scan.status],
     ["Root URL", scan.rootUrl],
     ["Hostname", scan.hostname],
+    ["Status", scan.status],
     ["Started", formatDate(scan.startTime)],
     ["Finished", formatDate(scan.endTime)],
-    ["Pages", scan.totalPagesCrawled],
-    ["Images", scan.totalImagesFound],
-    ["Documents", scan.totalDocumentsLinked],
+    ["Duration", formatDuration(scan.startTime, scan.endTime)],
+    ["Total Pages", scan.totalPagesCrawled],
+    ["Pages vs Max", pagesVsLimit],
+    ["Max Limit Reached", scanSummary?.maxPageLimitReached === undefined ? "N/A" : scanSummary.maxPageLimitReached ? "Yes" : "No"],
+    ["Total Images", scan.totalImagesFound],
+    ["Total Documents", scan.totalDocumentsLinked],
     ["Broken Links", scan.brokenInternalLinks],
     ["Missing Titles", scan.pagesMissingTitle],
-    ["Missing Meta", scan.pagesMissingMetaDescription],
-    ["No H1", scan.pagesWithNoH1],
-    ["Error", scan.errorMessage || "None"]
+    ["Missing Meta Descriptions", scan.pagesMissingMetaDescription],
+    ["Pages With No H1", scan.pagesWithNoH1],
+    ["Crawl Delay", scanSummary?.crawlDelayMs === undefined ? "N/A" : `${scanSummary.crawlDelayMs} ms`],
+    ["User Agent", formatMaybeValue(scanSummary?.userAgent)],
+    ["Error Message", scan.errorMessage || "None"]
   ];
 
   summaryGrid.innerHTML = items
     .map(
       ([label, value]) => `
         <div>
-          <dt>${label}</dt>
-          <dd>${value}</dd>
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
         </div>
       `
     )
     .join("");
+}
 
-  detailsLink.href = joinApi(scan.links.details);
-  csvLink.href = joinApi(scan.links.csv);
-  sitemapDownloadLink.href = joinApi(scan.links.sitemap);
-  compareLink.href = joinApi(scan.links.compare);
+function renderPageTable() {
+  const pages = currentScanDetails?.pages ?? [];
 
-  latestScan = scan;
-  clearSitemapState();
+  if (pages.length === 0) {
+    pageTableBody.innerHTML = "";
+    setHidden(pagesEmpty, false);
+    return;
+  }
+
+  const filter = currentPageFilter.trim().toLowerCase();
+  const filteredPages = filter
+    ? pages.filter((page) => {
+        const haystack = [
+          page.title,
+          page.url,
+          String(page.httpStatus),
+          page.crawlError || "",
+          page.hasMetaDescription ? "no missing meta" : "missing meta"
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(filter);
+      })
+    : pages;
+
+  if (filteredPages.length === 0) {
+    pageTableBody.innerHTML = `
+      <tr>
+        <td colspan="9" class="helper">No pages match the current filter.</td>
+      </tr>
+    `;
+    setHidden(pagesEmpty, true);
+    return;
+  }
+
+  pageTableBody.innerHTML = filteredPages
+    .map((page) => {
+      const titleClass = page.title ? "page-title" : "page-title muted";
+      const statusClass = page.httpStatus >= 400 ? "status-pill error" : "status-pill";
+
+      return `
+        <tr>
+          <td><span class="${titleClass}">${escapeHtml(page.title || "Untitled")}</span></td>
+          <td><a href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.url)}</a></td>
+          <td><span class="${statusClass}">${escapeHtml(page.httpStatus)}</span></td>
+          <td>${escapeHtml(page.h1Count)}</td>
+          <td>${escapeHtml(page.imageCount)}</td>
+          <td>${escapeHtml(page.documentLinkCount)}</td>
+          <td>${escapeHtml(page.wordCount)}</td>
+          <td>${page.hasMetaDescription ? "No" : "Yes"}</td>
+          <td>${escapeHtml(page.crawlError || "")}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  setHidden(pagesEmpty, true);
+}
+
+function renderCurrentScan() {
+  if (!currentScanSummary || !currentScanDetails) {
+    latestScanContainer.classList.add("hidden");
+    latestScanEmpty.classList.remove("hidden");
+    return;
+  }
+
+  const links = getActiveLinks();
+
+  renderSummary(currentScanSummary, currentScanDetails);
+  renderPageTable();
+
+  detailsLink.href = joinApi(links.details);
+  csvLink.href = joinApi(links.csv);
+  pagesCsvLink.href = joinApi(links.csv);
+  sitemapDownloadLink.href = joinApi(links.sitemap);
+  compareLink.href = joinApi(links.compare);
+
   latestScanEmpty.classList.add("hidden");
   latestScanContainer.classList.remove("hidden");
 }
@@ -207,45 +370,104 @@ async function fetchJson(path, options) {
   return data;
 }
 
+async function fetchText(path) {
+  let response;
+
+  try {
+    response = await fetch(joinApi(path));
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Could not reach the API. ${error.message}`
+        : "Could not reach the API."
+    );
+  }
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+
+  return text;
+}
+
+async function loadScanIntoResults(scanSummary) {
+  const scanId = scanSummary.id;
+  const scanDetails = await fetchJson(`/api/scans/${scanId}`);
+
+  currentScanSummary = {
+    ...scanSummary,
+    links: scanSummary.links ?? buildScanLinks(scanId)
+  };
+  currentScanDetails = scanDetails;
+  currentPageFilter = "";
+  pageFilterInput.value = "";
+  clearSitemapState();
+  renderCurrentScan();
+  switchTab("results");
+}
+
+function renderScansList(items) {
+  if (items.length === 0) {
+    scanList.innerHTML = "";
+    setHidden(scanList, true);
+    setHidden(scanListEmpty, false);
+    return;
+  }
+
+  scanList.innerHTML = items
+    .map((scan) => {
+      const links = buildScanLinks(scan.id);
+
+      return `
+        <li>
+          <div class="scan-row">
+            <strong>${escapeHtml(scan.hostname)}</strong>
+            <span class="status-pill ${scan.status === "failed" ? "error" : ""}">${escapeHtml(scan.status)}</span>
+          </div>
+          <div class="scan-meta">
+            ${escapeHtml(`${scan.totalPagesCrawled} pages · ${scan.totalImagesFound} images · ${formatDate(scan.endTime)}`)}
+          </div>
+          <div class="scan-links">
+            <button class="button tertiary open-scan-button" type="button" data-scan-id="${escapeHtml(scan.id)}">Open Result</button>
+            <a class="button tertiary" href="${joinApi(links.details)}" target="_blank" rel="noreferrer">Details</a>
+            <a class="button tertiary" href="${joinApi(links.csv)}" target="_blank" rel="noreferrer">CSV</a>
+            <a class="button tertiary" href="${buildSitemapViewerUrl(scan.id)}" target="_blank" rel="noreferrer">Open Sitemap</a>
+            <a class="button tertiary" href="${joinApi(links.compare)}" target="_blank" rel="noreferrer">Compare</a>
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  for (const button of scanList.querySelectorAll(".open-scan-button")) {
+    button.addEventListener("click", () => {
+      const selectedScan = items.find((scan) => scan.id === button.dataset.scanId);
+
+      if (!selectedScan) {
+        return;
+      }
+
+      clearError();
+      clearSuccess();
+      void loadScanIntoResults(selectedScan).catch((error) => {
+        showError(error instanceof Error ? error.message : "Failed to load scan details");
+      });
+    });
+  }
+
+  setHidden(scanListEmpty, true);
+  setHidden(scanList, false);
+}
+
 async function refreshScans() {
   scanListError.textContent = "";
   setHidden(scanListError, true);
 
   try {
     const data = await fetchJson("/api/scans");
-    const items = data.items || [];
-
-    if (items.length === 0) {
-      scanList.innerHTML = "";
-      setHidden(scanList, true);
-      setHidden(scanListEmpty, false);
-      return;
-    }
-
-    scanList.innerHTML = items
-      .map(
-        (scan) => `
-          <li>
-            <div class="scan-row">
-              <strong>${scan.hostname}</strong>
-              <span>${scan.status}</span>
-            </div>
-            <div class="scan-meta">
-              ${scan.totalPagesCrawled} pages · ${scan.totalImagesFound} images · ${formatDate(scan.endTime)}
-            </div>
-            <div class="scan-links">
-              <a class="button tertiary" href="${joinApi(`/api/scans/${scan.id}`)}" target="_blank" rel="noreferrer">Details</a>
-              <a class="button tertiary" href="${joinApi(`/api/scans/${scan.id}/pages.csv`)}" target="_blank" rel="noreferrer">CSV</a>
-              <a class="button tertiary" href="${joinApi(`/api/scans/${scan.id}/sitemap.mmd`)}" target="_blank" rel="noreferrer">Sitemap</a>
-              <a class="button tertiary" href="${joinApi(`/api/scans/${scan.id}/compare`)}" target="_blank" rel="noreferrer">Compare</a>
-            </div>
-          </li>
-        `
-      )
-      .join("");
-
-    setHidden(scanListEmpty, true);
-    setHidden(scanList, false);
+    renderScansList(data.items || []);
   } catch (error) {
     scanListError.textContent = error instanceof Error ? error.message : "Failed to load previous scans";
     setHidden(scanListError, false);
@@ -260,15 +482,17 @@ async function renderSitemapDiagram(source) {
 }
 
 async function ensureSitemapLoaded() {
-  if (!latestScan) {
+  const links = getActiveLinks();
+
+  if (!currentScanSummary || !links) {
     return false;
   }
 
-  if (sitemapLoadedForScanId === latestScan.id && sitemapSource) {
+  if (sitemapLoadedForScanId === currentScanSummary.id && sitemapSource) {
     return true;
   }
 
-  sitemapPanel.classList.remove("hidden");
+  setHidden(sitemapPanel, false);
   setHidden(sitemapLoading, false);
   setHidden(sitemapError, true);
   setHidden(sitemapDiagramShell, true);
@@ -282,32 +506,14 @@ async function ensureSitemapLoaded() {
   viewSitemapButton.textContent = "Loading Diagram...";
 
   try {
-    let response;
-
-    try {
-      response = await fetch(joinApi(latestScan.links.sitemap));
-    } catch (error) {
-      throw new Error(
-        error instanceof Error
-          ? `Could not reach the API. ${error.message}`
-          : "Could not reach the API."
-      );
-    }
-
-    const text = await response.text();
-
-    if (!response.ok) {
-      throw new Error(`Failed to load sitemap (${response.status})`);
-    }
-
-    sitemapSource = text;
-    sitemapOutput.textContent = text;
-    sitemapLoadedForScanId = latestScan.id;
+    sitemapSource = await fetchText(links.sitemap);
+    sitemapOutput.textContent = sitemapSource;
+    sitemapLoadedForScanId = currentScanSummary.id;
     return true;
   } catch (error) {
     sitemapError.textContent = error instanceof Error ? error.message : "Failed to load sitemap";
     setHidden(sitemapError, false);
-    viewSitemapButton.textContent = "View Diagram";
+    viewSitemapButton.textContent = "View Diagram Inline";
     return false;
   } finally {
     setHidden(sitemapLoading, true);
@@ -320,13 +526,13 @@ async function ensureSitemapLoaded() {
 async function showSitemapDiagram() {
   clearError();
 
-  if (!latestScan) {
+  if (!currentScanSummary) {
     return;
   }
 
   if (!sitemapPanel.classList.contains("hidden") && !sitemapDiagramShell.classList.contains("hidden")) {
     setHidden(sitemapPanel, true);
-    viewSitemapButton.textContent = "View Diagram";
+    viewSitemapButton.textContent = "View Diagram Inline";
     return;
   }
 
@@ -343,13 +549,13 @@ async function showSitemapDiagram() {
     setHidden(sitemapPanel, false);
     setHidden(sitemapDiagramShell, false);
     setHidden(toggleRawSitemapButton, false);
-    viewSitemapButton.textContent = "Hide Diagram";
+    viewSitemapButton.textContent = "Hide Inline Diagram";
   } catch (error) {
     sitemapError.textContent = error instanceof Error
       ? `Failed to render Mermaid diagram: ${error.message}`
       : "Failed to render Mermaid diagram";
     setHidden(sitemapError, false);
-    viewSitemapButton.textContent = "View Diagram";
+    viewSitemapButton.textContent = "View Diagram Inline";
   } finally {
     viewSitemapButton.disabled = false;
   }
@@ -378,6 +584,56 @@ function toggleRawSitemap() {
   toggleRawSitemapButton.textContent = willShow ? "Hide Mermaid Text" : "Show Mermaid Text";
 }
 
+function buildPageExportText(pages) {
+  const header = [
+    "Title",
+    "URL",
+    "Status",
+    "H1 Count",
+    "Image Count",
+    "Document Count",
+    "Word Count",
+    "Missing Meta Description",
+    "Crawl Error"
+  ];
+
+  const lines = pages.map((page) => [
+    page.title || "Untitled",
+    page.url,
+    page.httpStatus,
+    page.h1Count,
+    page.imageCount,
+    page.documentLinkCount,
+    page.wordCount,
+    page.hasMetaDescription ? "No" : "Yes",
+    page.crawlError || ""
+  ]);
+
+  return [header, ...lines].map((row) => row.join("\t")).join("\n");
+}
+
+async function copyPages() {
+  if (!currentScanDetails?.pages?.length) {
+    showError("There are no stored page rows to copy yet.");
+    return;
+  }
+
+  try {
+    await copyText(buildPageExportText(currentScanDetails.pages));
+    showSuccess("Page list copied.");
+  } catch (error) {
+    showError(error instanceof Error ? error.message : "Failed to copy page list");
+  }
+}
+
+function openSitemapViewer() {
+  if (!currentScanSummary?.id) {
+    return;
+  }
+
+  window.open(buildSitemapViewerUrl(currentScanSummary.id), "_blank", "noopener");
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearError();
@@ -402,7 +658,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify(payload)
     });
 
-    renderSummary(scan);
+    await loadScanIntoResults(scan);
     showSuccess(`Scan ${scan.id} completed.`);
     await refreshScans();
   } catch (error) {
@@ -421,6 +677,10 @@ viewSitemapButton.addEventListener("click", () => {
   void showSitemapDiagram();
 });
 
+openSitemapViewerButton.addEventListener("click", () => {
+  openSitemapViewer();
+});
+
 copySitemapButton.addEventListener("click", () => {
   void copySitemapSource();
 });
@@ -428,5 +688,20 @@ copySitemapButton.addEventListener("click", () => {
 toggleRawSitemapButton.addEventListener("click", () => {
   toggleRawSitemap();
 });
+
+copyPagesButton.addEventListener("click", () => {
+  void copyPages();
+});
+
+pageFilterInput.addEventListener("input", () => {
+  currentPageFilter = pageFilterInput.value;
+  renderPageTable();
+});
+
+for (const button of tabButtons) {
+  button.addEventListener("click", () => {
+    switchTab(button.dataset.tab);
+  });
+}
 
 void refreshScans();

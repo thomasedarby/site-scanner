@@ -56,6 +56,46 @@ interface QueueItem {
   url: URL;
 }
 
+function getAllowedBoundaryHostnames(
+  rootHostname: string,
+  allowedDomains: string[],
+  crawlAllowedHostVariants: boolean
+): Set<string> {
+  const boundaryHostnames = new Set<string>([rootHostname]);
+
+  if (!crawlAllowedHostVariants) {
+    return boundaryHostnames;
+  }
+
+  const counterpartHostname = rootHostname.startsWith("www.")
+    ? rootHostname.slice(4)
+    : `www.${rootHostname}`;
+
+  if (allowedDomains.includes(counterpartHostname)) {
+    boundaryHostnames.add(counterpartHostname);
+  }
+
+  return boundaryHostnames;
+}
+
+function isWithinCrawlBoundary(
+  candidateUrl: URL,
+  rootUrl: URL,
+  request: CrawlRequest,
+  boundaryHostnames: Set<string>
+): boolean {
+  if (!["http:", "https:"].includes(candidateUrl.protocol)) {
+    return false;
+  }
+
+  if (request.config.crawlAllowedHostVariants) {
+    return boundaryHostnames.has(candidateUrl.hostname) &&
+      isAllowedDomain(candidateUrl, request.config.allowedDomains);
+  }
+
+  return isSameOrigin(candidateUrl, rootUrl.origin);
+}
+
 function getPathExtension(url: URL): string {
   const lastSegment = url.pathname.split("/").pop() ?? "";
   const dotIndex = lastSegment.lastIndexOf(".");
@@ -116,7 +156,9 @@ function defaultFetch(input: string, init?: Parameters<typeof fetch>[1]) {
 
 async function fetchHtmlWithRedirectChecks(
   url: URL,
+  rootUrl: URL,
   request: CrawlRequest,
+  boundaryHostnames: Set<string>,
   fetchImpl: FetchLike
 ): Promise<{ body: string; finalUrl: URL; response: FetchResponseLike }> {
   let currentUrl = url;
@@ -144,7 +186,7 @@ async function fetchHtmlWithRedirectChecks(
           shouldSkipUrl(nextUrl.toString()) ||
           isPrivateOrLocalHostname(nextUrl.hostname) ||
           !isAllowedDomain(nextUrl, request.config.allowedDomains) ||
-          !isSameOrigin(nextUrl, url.origin)
+          !isWithinCrawlBoundary(nextUrl, rootUrl, request, boundaryHostnames)
         ) {
           throw new Error(`Redirect target is not allowed: ${nextUrl.toString()}`);
         }
@@ -167,7 +209,7 @@ async function fetchHtmlWithRedirectChecks(
       if (
         isPrivateOrLocalHostname(finalUrl.hostname) ||
         !isAllowedDomain(finalUrl, request.config.allowedDomains) ||
-        !isSameOrigin(finalUrl, url.origin)
+        !isWithinCrawlBoundary(finalUrl, rootUrl, request, boundaryHostnames)
       ) {
         throw new Error(`Final response URL is not allowed: ${finalUrl.toString()}`);
       }
@@ -185,12 +227,17 @@ async function fetchHtmlWithRedirectChecks(
   throw new Error(`Too many redirects for ${url.toString()}`);
 }
 
-function classifyAnchorUrl(candidateUrl: URL, rootOrigin: string): "internal-page" | "internal-document" | "external" | "skip" {
+function classifyAnchorUrl(
+  candidateUrl: URL,
+  rootUrl: URL,
+  request: CrawlRequest,
+  boundaryHostnames: Set<string>
+): "internal-page" | "internal-document" | "external" | "skip" {
   if (isPrivateOrLocalHostname(candidateUrl.hostname)) {
     return "skip";
   }
 
-  if (!isSameOrigin(candidateUrl, rootOrigin)) {
+  if (!isWithinCrawlBoundary(candidateUrl, rootUrl, request, boundaryHostnames)) {
     return "external";
   }
 
@@ -227,6 +274,11 @@ export class CrawlerService {
       throw new Error("Root URL hostname is not in allowedDomains");
     }
 
+    const boundaryHostnames = getAllowedBoundaryHostnames(
+      rootUrl.hostname,
+      request.config.allowedDomains,
+      request.config.crawlAllowedHostVariants
+    );
     const queue: QueueItem[] = [{ parentUrl: null, url: rootUrl }];
     const seen = new Set<string>([rootUrl.toString()]);
     const pages: ScanPage[] = [];
@@ -241,7 +293,9 @@ export class CrawlerService {
       try {
         const { body, finalUrl, response } = await fetchHtmlWithRedirectChecks(
           current.url,
+          rootUrl,
           request,
+          boundaryHostnames,
           this.fetchImpl
         );
         const $ = load(body);
@@ -270,7 +324,7 @@ export class CrawlerService {
             return;
           }
 
-          const classification = classifyAnchorUrl(candidateUrl, rootUrl.origin);
+          const classification = classifyAnchorUrl(candidateUrl, rootUrl, request, boundaryHostnames);
 
           if (classification === "external") {
             externalLinkCount += 1;

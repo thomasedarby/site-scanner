@@ -13,6 +13,30 @@ export interface NormaliseUrlOptions {
   stripQueryString?: boolean;
 }
 
+function hasExplicitProtocol(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value);
+}
+
+function shouldApplyDefaultHttps(inputUrl: string, baseUrl?: string): boolean {
+  if (baseUrl) {
+    return false;
+  }
+
+  const trimmed = inputUrl.trim();
+
+  if (
+    trimmed.length === 0 ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith(".") ||
+    trimmed.startsWith("#") ||
+    trimmed.startsWith("?")
+  ) {
+    return false;
+  }
+
+  return !hasExplicitProtocol(trimmed);
+}
+
 function parseIpv4(hostname: string): number[] | null {
   if (!IPV4_PATTERN.test(hostname)) {
     return null;
@@ -44,7 +68,10 @@ export function normaliseUrl(
   baseUrl?: string,
   options: NormaliseUrlOptions = {}
 ): URL {
-  const url = new URL(inputUrl, baseUrl);
+  const candidateUrl = shouldApplyDefaultHttps(inputUrl, baseUrl)
+    ? `https://${inputUrl.trim()}`
+    : inputUrl;
+  const url = new URL(candidateUrl, baseUrl);
 
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error(`Unsupported URL protocol: ${url.protocol}`);

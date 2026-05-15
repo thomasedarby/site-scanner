@@ -26,6 +26,7 @@ function writeScannerConfig(tempDir: string, allowedDomains: unknown) {
     configPath,
     JSON.stringify({
       allowedDomains,
+      crawlAllowedHostVariants: true,
       defaultMaxPages: 100,
       maxAllowedPages: 200,
       crawlDelayMs: 250,
@@ -48,6 +49,7 @@ describe("loadScannerConfig", () => {
       configPath,
       JSON.stringify({
         allowedDomains: ["example.com"],
+        crawlAllowedHostVariants: true,
         defaultMaxPages: 100,
         maxAllowedPages: 200,
         crawlDelayMs: 250,
@@ -67,6 +69,7 @@ describe("loadScannerConfig", () => {
 
     expect(config.configPath).toBe(configPath);
     expect(config.allowedDomains).toEqual(["example.com"]);
+    expect(config.crawlAllowedHostVariants).toBe(true);
     expect(config.scanCreationAllowed).toBe(true);
   });
 
@@ -82,6 +85,7 @@ describe("loadScannerConfig", () => {
     expect(config.allowedDomains).toEqual([]);
     expect(config.defaultMaxPages).toBe(500);
     expect(config.maxAllowedPages).toBe(2000);
+    expect(config.crawlAllowedHostVariants).toBe(true);
     expect(config.scanCreationAllowed).toBe(false);
   });
 
@@ -109,6 +113,33 @@ describe("loadScannerConfig", () => {
     expect(config.allowedDomains).toEqual([]);
     expect(config.configPath).toBe(configPath);
     expect(config.scanCreationAllowed).toBe(false);
+  });
+
+  it("rejects a non-boolean crawlAllowedHostVariants value", () => {
+    const tempDir = createTempDir();
+    const configPath = path.join(tempDir, "scanner.config.json");
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        allowedDomains: ["example.com"],
+        crawlAllowedHostVariants: "yes",
+        defaultMaxPages: 100,
+        maxAllowedPages: 200,
+        crawlDelayMs: 250,
+        requestTimeoutMs: 5000,
+        stripQueryStrings: true,
+        respectRobotsTxt: true,
+        userAgent: "Test-Agent/1.0"
+      })
+    );
+
+    expect(() =>
+      loadScannerConfig({
+        cwd: tempDir,
+        env: {}
+      })
+    ).toThrow("crawlAllowedHostVariants must be a boolean");
   });
 
   it("accepts valid public domains and normalizes them", () => {

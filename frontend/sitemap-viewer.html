@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sitemap Viewer</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Sitemap Viewer</p>
+            <h1>Rendered Mermaid sitemap</h1>
+            <p class="panel-copy">Use the controls below to copy the Mermaid source or save the diagram.</p>
+          </div>
+          <p class="helper">Close this tab or go back when you are finished.</p>
+        </div>
+
+        <div id="viewer-error" class="message error hidden" role="alert"></div>
+        <div id="viewer-loading" class="loading">Loading sitemap...</div>
+
+        <div class="link-row">
+          <button id="copy-mermaid-button" class="button tertiary" type="button">Copy Mermaid</button>
+          <button id="download-png-button" class="button tertiary" type="button">Download PNG</button>
+          <button id="download-svg-button" class="button tertiary" type="button">Download SVG</button>
+          <a id="download-mermaid-link" class="button secondary" href="#" download>Download Mermaid</a>
+          <button id="toggle-source-button" class="button tertiary" type="button">Show Mermaid Text</button>
+        </div>
+
+        <div class="sitemap-panel">
+          <div class="diagram-shell">
+            <div id="viewer-diagram" class="diagram-canvas"></div>
+          </div>
+          <div id="viewer-raw-shell" class="raw-shell hidden">
+            <pre id="viewer-source"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/sitemap-viewer.js"></script>
+  </body>
+</html>

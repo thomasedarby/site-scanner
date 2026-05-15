@@ -29,6 +29,12 @@ describe("normaliseUrl", () => {
     expect(result.toString()).toBe("https://example.com/about");
   });
 
+  it("defaults to https when the input omits a protocol", () => {
+    const result = normaliseUrl("parksmarter.org.uk");
+
+    expect(result.toString()).toBe("https://parksmarter.org.uk/");
+  });
+
   it("rejects non-http protocols", () => {
     expect(() => normaliseUrl("ftp://example.com/file.txt")).toThrow(
       "Unsupported URL protocol: ftp:"

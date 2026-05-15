@@ -5,6 +5,7 @@ import { isPrivateOrLocalHostname } from "../security/urlSafety.js";
 
 export interface ScannerConfig {
   allowedDomains: string[];
+  crawlAllowedHostVariants: boolean;
   defaultMaxPages: number;
   maxAllowedPages: number;
   crawlDelayMs: number;
@@ -26,6 +27,7 @@ export interface LoadScannerConfigOptions {
 
 const DEFAULT_SCANNER_CONFIG: ScannerConfig = {
   allowedDomains: [],
+  crawlAllowedHostVariants: true,
   defaultMaxPages: 500,
   maxAllowedPages: 2000,
   crawlDelayMs: 500,
@@ -98,6 +100,7 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
 
   const {
     allowedDomains,
+    crawlAllowedHostVariants,
     defaultMaxPages,
     maxAllowedPages,
     crawlDelayMs,
@@ -118,6 +121,10 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
 
   if (uniqueAllowedDomains.size !== normalisedAllowedDomains.length) {
     throw new Error("allowedDomains must not contain duplicates after normalization");
+  }
+
+  if (typeof crawlAllowedHostVariants !== "boolean") {
+    throw new Error("crawlAllowedHostVariants must be a boolean");
   }
 
   assertInteger("defaultMaxPages", defaultMaxPages, 1);
@@ -144,6 +151,7 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
 
   return {
     allowedDomains: normalisedAllowedDomains,
+    crawlAllowedHostVariants,
     defaultMaxPages,
     maxAllowedPages,
     crawlDelayMs,

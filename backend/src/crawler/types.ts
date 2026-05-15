@@ -2,6 +2,7 @@ import type { ScanPage } from "../types/scan.js";
 
 export interface CrawlConfig {
   allowedDomains: string[];
+  crawlAllowedHostVariants: boolean;
   crawlDelayMs: number;
   maxPages: number;
   requestTimeoutMs: number;

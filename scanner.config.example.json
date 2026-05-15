@@ -5,6 +5,7 @@
     "derbyshire.gov.uk",
     "www.derbyshire.gov.uk"
   ],
+  "crawlAllowedHostVariants": true,
   "defaultMaxPages": 500,
   "maxAllowedPages": 2000,
   "crawlDelayMs": 500,

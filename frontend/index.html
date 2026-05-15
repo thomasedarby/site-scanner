@@ -10,18 +10,31 @@
     <main class="page">
       <section class="hero">
         <p class="eyebrow">Internal Website Scanner</p>
-        <h1>Scan approved websites and review results quickly.</h1>
+        <h1>Scan approved websites and review the results in one place.</h1>
         <p class="lede">
-          Start a scan, review summary stats, and download CSV or Mermaid output from one page.
+          Enter a website address, run a scan, review page-level findings, and open a larger sitemap
+          viewer when the diagram needs more space.
         </p>
       </section>
 
-      <section class="panel">
+      <div class="status-stack">
+        <div id="error-box" class="message error hidden" role="alert"></div>
+        <div id="success-box" class="message success hidden"></div>
+      </div>
+
+      <nav class="tabs" aria-label="Dashboard sections">
+        <button id="tab-new-scan" class="tab-button active" type="button" data-tab="new-scan">New Scan</button>
+        <button id="tab-results" class="tab-button" type="button" data-tab="results">Results</button>
+        <button id="tab-previous-scans" class="tab-button" type="button" data-tab="previous-scans">Previous Scans</button>
+      </nav>
+
+      <section id="panel-new-scan" class="panel tab-panel">
         <h2>New Scan</h2>
         <form id="scan-form" class="scan-form">
           <label class="field">
             <span>Website URL</span>
-            <input id="url" name="url" type="url" placeholder="https://example.com" required>
+            <input id="url" name="url" type="text" placeholder="parksmarter.org.uk" required>
+            <small>You can enter a hostname without typing <code>https://</code>.</small>
           </label>
 
           <label class="field">
@@ -34,52 +47,97 @@
             <span id="loading-state" class="loading hidden">Scanning in progress...</span>
           </div>
         </form>
-
-        <div id="error-box" class="message error hidden" role="alert"></div>
-        <div id="success-box" class="message success hidden"></div>
       </section>
 
-      <section class="grid">
-        <article class="panel">
-          <div class="panel-header">
-            <h2>Latest Result</h2>
+      <section id="panel-results" class="panel tab-panel hidden">
+        <div class="panel-header">
+          <div>
+            <h2>Results</h2>
+            <p class="panel-copy">Review the latest stored details, page list, and sitemap outputs.</p>
           </div>
-          <div id="latest-scan-empty" class="empty-state">No scan has been run in this session.</div>
-          <div id="latest-scan" class="hidden">
-            <dl id="summary-grid" class="summary-grid"></dl>
+        </div>
 
-            <div class="link-row">
-              <a id="details-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Details</a>
-              <a id="csv-link" class="button secondary" href="#" target="_blank" rel="noreferrer">CSV</a>
-              <a id="sitemap-download-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Download Mermaid</a>
-              <a id="compare-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Compare</a>
-              <button id="view-sitemap" class="button tertiary" type="button">View Diagram</button>
-              <button id="copy-sitemap" class="button tertiary" type="button">Copy Mermaid</button>
-              <button id="toggle-raw-sitemap" class="button tertiary hidden" type="button">Show Mermaid Text</button>
+        <div id="latest-scan-empty" class="empty-state">
+          Run a scan or open a previous result to populate this tab.
+        </div>
+
+        <div id="latest-scan" class="hidden">
+          <dl id="summary-grid" class="summary-grid"></dl>
+
+          <div class="link-row">
+            <a id="details-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Details JSON</a>
+            <a id="compare-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Compare</a>
+            <a id="csv-link" class="button secondary" href="#" target="_blank" rel="noreferrer">CSV Download</a>
+            <a id="sitemap-download-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Download Mermaid</a>
+            <button id="open-sitemap-viewer" class="button secondary" type="button">Open Sitemap</button>
+            <button id="view-sitemap" class="button tertiary" type="button">View Diagram Inline</button>
+            <button id="copy-sitemap" class="button tertiary" type="button">Copy Mermaid</button>
+            <button id="toggle-raw-sitemap" class="button tertiary hidden" type="button">Show Mermaid Text</button>
+          </div>
+
+          <div id="sitemap-panel" class="sitemap-panel hidden">
+            <div id="sitemap-loading" class="loading hidden">Loading diagram...</div>
+            <div id="sitemap-error" class="message error hidden" role="alert"></div>
+            <div id="sitemap-diagram-shell" class="diagram-shell hidden">
+              <div id="sitemap-diagram" class="diagram-canvas"></div>
+            </div>
+            <div id="sitemap-raw-shell" class="raw-shell hidden">
+              <pre id="sitemap-output"></pre>
+            </div>
+          </div>
+
+          <section class="subsection">
+            <div class="panel-header">
+              <div>
+                <h3>Pages</h3>
+                <p class="panel-copy">Filter, copy, or download the page list for this scan.</p>
+              </div>
             </div>
 
-            <div id="sitemap-panel" class="sitemap-panel hidden">
-              <div id="sitemap-loading" class="loading hidden">Loading diagram...</div>
-              <div id="sitemap-error" class="message error hidden" role="alert"></div>
-              <div id="sitemap-diagram-shell" class="diagram-shell hidden">
-                <div id="sitemap-diagram" class="diagram-canvas"></div>
-              </div>
-              <div id="sitemap-raw-shell" class="raw-shell hidden">
-                <pre id="sitemap-output"></pre>
-              </div>
+            <div class="toolbar">
+              <label class="field field-inline grow">
+                <span>Search pages</span>
+                <input id="page-filter" type="search" placeholder="Filter by title, URL, status, or error">
+              </label>
+              <button id="copy-pages-button" class="button tertiary" type="button">Copy Page List</button>
+              <a id="pages-csv-link" class="button tertiary" href="#" target="_blank" rel="noreferrer">Download CSV</a>
             </div>
-          </div>
-        </article>
 
-        <article class="panel">
-          <div class="panel-header">
+            <div id="pages-empty" class="empty-state hidden">No pages were stored for this scan.</div>
+            <div class="table-shell">
+              <table class="page-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th>H1</th>
+                    <th>Images</th>
+                    <th>Documents</th>
+                    <th>Words</th>
+                    <th>Missing Meta</th>
+                    <th>Crawl Error</th>
+                  </tr>
+                </thead>
+                <tbody id="page-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="panel-previous-scans" class="panel tab-panel hidden">
+        <div class="panel-header">
+          <div>
             <h2>Previous Scans</h2>
-            <button id="refresh-scans" class="button tertiary" type="button">Refresh</button>
+            <p class="panel-copy">Reopen earlier scans, compare outputs, or download reports.</p>
           </div>
-          <div id="scan-list-error" class="message error hidden" role="alert"></div>
-          <div id="scan-list-empty" class="empty-state">No scans stored yet.</div>
-          <ul id="scan-list" class="scan-list hidden"></ul>
-        </article>
+          <button id="refresh-scans" class="button tertiary" type="button">Refresh</button>
+        </div>
+
+        <div id="scan-list-error" class="message error hidden" role="alert"></div>
+        <div id="scan-list-empty" class="empty-state">No scans stored yet.</div>
+        <ul id="scan-list" class="scan-list hidden"></ul>
       </section>
     </main>
 
