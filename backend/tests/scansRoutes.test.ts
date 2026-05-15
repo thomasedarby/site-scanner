@@ -213,6 +213,13 @@ describe("scan routes", () => {
     expect(payload.id).toBeTypeOf("string");
     expect(payload.rootUrl).toBe("https://example.com/path");
     expect(payload.status).toBe("completed");
+    expect(payload.mermaidSitemap).toBeUndefined();
+    expect(payload.links).toEqual({
+      compare: `/api/scans/${payload.id}/compare`,
+      csv: `/api/scans/${payload.id}/pages.csv`,
+      details: `/api/scans/${payload.id}`,
+      sitemap: `/api/scans/${payload.id}/sitemap.mmd`
+    });
     expect(detailResponse.json().pages).toHaveLength(2);
   });
 

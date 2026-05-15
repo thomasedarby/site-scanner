@@ -3,10 +3,31 @@ import type { FastifyInstance } from "fastify";
 import type { LoadedScannerConfig } from "../config/scannerConfig.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
 import { ScanExecutionError, type ScanService } from "../services/scanService.js";
+import type { ScanSummary } from "../types/scan.js";
 
 export interface ScansRouteDependencies {
   loadScannerConfig: () => LoadedScannerConfig;
   scanService: ScanService;
+}
+
+function buildScanLinks(id: string) {
+  return {
+    compare: `/api/scans/${id}/compare`,
+    csv: `/api/scans/${id}/pages.csv`,
+    details: `/api/scans/${id}`,
+    sitemap: `/api/scans/${id}/sitemap.mmd`
+  };
+}
+
+function toCreateScanResponse(summary: ScanSummary) {
+  const { id } = summary;
+  const { mermaidSitemap: _mermaidSitemap, ...rest } = summary;
+
+  return {
+    ...rest,
+    id,
+    links: buildScanLinks(id)
+  };
 }
 
 function sendNotFound(reply: Parameters<FastifyInstance["get"]>[1] extends never ? never : any) {
@@ -86,7 +107,7 @@ export async function registerScanRoutes(
         maxPages
       }, scannerConfig);
 
-      return reply.code(201).send(scan);
+      return reply.code(201).send(toCreateScanResponse(scan));
     } catch (error) {
       if (error instanceof ScanExecutionError) {
         return reply.code(500).send({
