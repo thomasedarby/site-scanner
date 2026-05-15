@@ -22,6 +22,14 @@ const errorBox = document.getElementById("error-box");
 const successBox = document.getElementById("success-box");
 const latestScanContainer = document.getElementById("latest-scan");
 const latestScanEmpty = document.getElementById("latest-scan-empty");
+const scanStatusPanel = document.getElementById("scan-status-panel");
+const scanStatusMessage = document.getElementById("scan-status-message");
+const scanStatusBadge = document.getElementById("scan-status-badge");
+const scanStatusSpinner = document.getElementById("scan-status-spinner");
+const scanStatusGrid = document.getElementById("scan-status-grid");
+const scanProgressShell = document.getElementById("scan-progress-shell");
+const scanProgressBar = document.getElementById("scan-progress-bar");
+const scanProgressText = document.getElementById("scan-progress-text");
 const summaryGrid = document.getElementById("summary-grid");
 const detailsLink = document.getElementById("details-link");
 const csvLink = document.getElementById("csv-link");
@@ -62,6 +70,9 @@ let renderSequence = 0;
 let currentPageFilter = "";
 let availableSites = [];
 let pathBoundaryTouched = false;
+let currentScanStatus = null;
+let activeStatusPollId = null;
+let activeStatusPollTimer = null;
 
 function normaliseApiBaseUrl(value) {
   const trimmedValue = String(value || "").trim();
@@ -85,6 +96,7 @@ function buildScanLinks(id) {
     compare: `/api/scans/${id}/compare`,
     csv: `/api/scans/${id}/pages.csv`,
     details: `/api/scans/${id}`,
+    status: `/api/scans/${id}/status`,
     sitemap: `/api/scans/${id}/sitemap.mmd`
   };
 }
@@ -171,6 +183,15 @@ function formatMaybeValue(value, fallback = "N/A") {
   return value === undefined || value === null || value === "" ? fallback : String(value);
 }
 
+function stopStatusPolling() {
+  activeStatusPollId = null;
+
+  if (activeStatusPollTimer) {
+    window.clearTimeout(activeStatusPollTimer);
+    activeStatusPollTimer = null;
+  }
+}
+
 function normaliseUserEnteredUrl(rawValue) {
   const trimmedValue = String(rawValue || "").trim();
 
@@ -249,6 +270,17 @@ function clearSitemapState() {
   viewSitemapButton.textContent = "View Diagram Inline";
 }
 
+function resetCurrentScanView() {
+  currentScanSummary = null;
+  currentScanDetails = null;
+  currentScanStatus = null;
+  currentPageFilter = "";
+  pageFilterInput.value = "";
+  pageTableBody.innerHTML = "";
+  setHidden(pagesEmpty, true);
+  clearSitemapState();
+}
+
 async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -282,6 +314,58 @@ function getActiveLinks() {
   }
 
   return currentScanSummary.links ?? buildScanLinks(currentScanSummary.id);
+}
+
+function renderStatusPanel(status) {
+  currentScanStatus = status;
+
+  if (!status) {
+    setHidden(scanStatusPanel, true);
+    return;
+  }
+
+  const isActive = status.status === "queued" || status.status === "running";
+  const elapsedLabel = formatDuration(status.startedAt, status.finishedAt || new Date().toISOString());
+  const progressText = status.maxPages
+    ? `Crawled ${status.totalPagesCrawled} of ${status.maxPages} pages`
+    : `Crawled ${status.totalPagesCrawled} pages`;
+  const statusItems = [
+    ["Started", formatDate(status.startedAt)],
+    ["Updated", formatDate(status.updatedAt)],
+    ["Finished", formatDate(status.finishedAt)],
+    ["Elapsed", elapsedLabel],
+    ["Pages Crawled", status.totalPagesCrawled],
+    ["Pages Queued", status.pagesQueued ?? "N/A"],
+    ["Current URL", status.currentUrl || "N/A"]
+  ];
+
+  scanStatusMessage.textContent = status.message || "Waiting for updates.";
+  scanStatusBadge.textContent = status.status;
+  scanStatusBadge.classList.toggle("error", status.status === "failed");
+  setHidden(scanStatusSpinner, !isActive);
+
+  if (typeof status.progressPercent === "number") {
+    setHidden(scanProgressShell, false);
+    scanProgressBar.style.width = `${status.progressPercent}%`;
+    scanProgressText.textContent = `${progressText} · ${status.progressPercent}%`;
+  } else {
+    setHidden(scanProgressShell, !isActive);
+    scanProgressBar.style.width = isActive ? "35%" : "0%";
+    scanProgressText.textContent = progressText;
+  }
+
+  scanStatusGrid.innerHTML = statusItems
+    .map(
+      ([label, value]) => `
+        <div>
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>
+      `
+    )
+    .join("");
+
+  setHidden(scanStatusPanel, false);
 }
 
 function renderSummary(scanSummary, scanDetails) {
@@ -385,7 +469,7 @@ function renderPageTable() {
 }
 
 function renderCurrentScan() {
-  if (!currentScanSummary || !currentScanDetails) {
+  if (!currentScanSummary) {
     latestScanContainer.classList.add("hidden");
     latestScanEmpty.classList.remove("hidden");
     return;
@@ -393,8 +477,15 @@ function renderCurrentScan() {
 
   const links = getActiveLinks();
 
-  renderSummary(currentScanSummary, currentScanDetails);
-  renderPageTable();
+  renderStatusPanel(currentScanStatus);
+  renderSummary(currentScanSummary, currentScanDetails ?? currentScanSummary);
+
+  if (currentScanDetails) {
+    renderPageTable();
+  } else {
+    pageTableBody.innerHTML = "";
+    setHidden(pagesEmpty, false);
+  }
 
   detailsLink.href = joinApi(links.details);
   csvLink.href = joinApi(links.csv);
@@ -462,7 +553,100 @@ async function fetchText(path) {
   return text;
 }
 
+async function fetchScanStatus(scanId) {
+  return fetchJson(`/api/scans/${scanId}/status`);
+}
+
+async function loadCompletedScan(scanSummary) {
+  const scanId = scanSummary.id;
+  const scanDetails = await fetchJson(`/api/scans/${scanId}`);
+
+  currentScanSummary = {
+    ...scanSummary,
+    links: scanSummary.links ?? buildScanLinks(scanId)
+  };
+  currentScanDetails = scanDetails;
+  renderCurrentScan();
+}
+
+function scheduleStatusPoll(scanId) {
+  activeStatusPollTimer = window.setTimeout(() => {
+    void pollScanStatus(scanId);
+  }, 1500);
+}
+
+async function pollScanStatus(scanId) {
+  if (activeStatusPollId !== scanId) {
+    return;
+  }
+
+  try {
+    const status = await fetchScanStatus(scanId);
+
+    if (activeStatusPollId !== scanId) {
+      return;
+    }
+
+    currentScanStatus = status;
+    renderCurrentScan();
+
+    if (status.status === "completed") {
+      stopStatusPolling();
+      await loadCompletedScan({
+        ...(currentScanSummary ?? { id: scanId }),
+        status: "completed"
+      });
+      showSuccess(`Scan ${scanId} completed.`);
+      await refreshScans();
+      return;
+    }
+
+    if (status.status === "failed") {
+      stopStatusPolling();
+      const failedDetails = await fetchJson(`/api/scans/${scanId}`);
+      currentScanSummary = {
+        ...(currentScanSummary ?? { id: scanId, links: buildScanLinks(scanId) }),
+        ...failedDetails,
+        links: (currentScanSummary?.links ?? buildScanLinks(scanId))
+      };
+      currentScanDetails = failedDetails;
+      renderCurrentScan();
+      showError(status.message || "Scan failed");
+      await refreshScans();
+      return;
+    }
+
+    scheduleStatusPoll(scanId);
+  } catch (error) {
+    stopStatusPolling();
+    showError(error instanceof Error ? error.message : "Failed to load scan status");
+  }
+}
+
+function startStatusPolling(scanSummary) {
+  stopStatusPolling();
+  activeStatusPollId = scanSummary.id;
+  currentScanSummary = scanSummary;
+  currentScanDetails = null;
+  currentScanStatus = {
+    id: scanSummary.id,
+    status: scanSummary.status,
+    totalPagesCrawled: scanSummary.totalPagesCrawled ?? 0,
+    pagesQueued: 1,
+    maxPages: scanSummary.maxPagesRequested ?? null,
+    progressPercent: 0,
+    startedAt: scanSummary.startTime,
+    updatedAt: scanSummary.startTime,
+    finishedAt: null,
+    currentUrl: null,
+    message: "Scan queued"
+  };
+  renderCurrentScan();
+  scheduleStatusPoll(scanSummary.id);
+}
+
 async function loadScanIntoResults(scanSummary) {
+  stopStatusPolling();
   const scanId = scanSummary.id;
   const scanDetails = await fetchJson(`/api/scans/${scanId}`);
 
@@ -473,6 +657,7 @@ async function loadScanIntoResults(scanSummary) {
   currentScanDetails = scanDetails;
   currentPageFilter = "";
   pageFilterInput.value = "";
+  currentScanStatus = null;
   clearSitemapState();
   renderCurrentScan();
   switchTab("results");
@@ -735,7 +920,9 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearError();
   clearSuccess();
-  clearSitemapState();
+  stopStatusPolling();
+  resetCurrentScanView();
+  switchTab("results");
 
   const payload = {
     url: urlInput.value.trim()
@@ -763,8 +950,8 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify(payload)
     });
 
-    await loadScanIntoResults(scan);
-    showSuccess(`Scan ${scan.id} completed.`);
+    startStatusPolling(scan);
+    showSuccess(`Scan ${scan.id} started.`);
     await refreshScans();
   } catch (error) {
     showError(error instanceof Error ? error.message : "Failed to start scan");

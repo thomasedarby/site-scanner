@@ -1,6 +1,6 @@
 # Site Scanner
 
-Internal website scanner with a Node.js backend, a plain static dashboard, Mermaid sitemap output, and local scan history storage.
+Internal website scanner with a Node.js backend, a plain static dashboard, background scan execution, Mermaid sitemap output, and local scan history storage.
 
 ## Requirements
 
@@ -199,7 +199,7 @@ If you want the older strict behavior, set:
 
 - `New Scan` lets users start a scan with a hostname or full URL.
 - `New Scan` can also use configured site presets and an optional path boundary.
-- `Results` shows the latest summary, including the path boundary used, the page table, CSV links, and sitemap actions.
+- `Results` shows live scan status while a scan is running, then the stored summary, including the path boundary used, the page table, CSV links, and sitemap actions.
 - `Previous Scans` lists stored scans and lets users reopen them in the Results tab.
 
 ### URL entry
@@ -218,8 +218,16 @@ The backend will normalize those to `https://...` automatically.
 2. Enable `Restrict crawl to this URL path`
 3. Confirm the boundary is `/jsna/`
 4. Start the scan
+5. Watch the Results tab for live progress, including pages crawled, queue size, current URL, and elapsed time
 
 If the site is configured in `scanner.config.json`, selecting that preset fills in the URL and path boundary automatically.
+
+### Scan progress
+
+- New scans return quickly and continue in the background inside the Node process.
+- The frontend polls scan status until the scan completes or fails.
+- Progress percentage is approximate and based on the configured max pages.
+- While a scan is still running, the Results tab shows live counts, current URL, and elapsed time.
 
 ### Page list
 
@@ -232,7 +240,7 @@ If the site is configured in `scanner.config.json`, selecting that preset fills 
 - `Open Sitemap` opens a larger full-page viewer in a new tab.
 - The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, and attempts PNG export in the browser.
 - If the browser blocks PNG export, the viewer falls back to SVG download with a friendly message.
-- SVG is the most reliable scalable export format. PNG is generated client-side in the browser.
+- SVG is the most reliable scalable export format for Mermaid sitemaps. PNG is generated client-side in the browser.
 - `View Diagram Inline` keeps the existing in-page Mermaid preview for quick checks.
 - Large diagrams may need horizontal or vertical scrolling.
 
@@ -266,7 +274,7 @@ npm run build
 
 ## Current Limitations
 
-- Scans run synchronously inside the POST request, so larger scans take longer to return.
+- Background scans currently run inside the same Node process. If the process restarts mid-scan, the interrupted scan is marked as failed.
 - There is no authentication yet.
 - `respectRobotsTxt` is present in config but not implemented in the crawler yet.
 - Mermaid rendering and client-side PNG export depend on browser support and the Mermaid CDN being reachable.

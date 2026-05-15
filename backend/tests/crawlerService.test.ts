@@ -648,4 +648,46 @@ describe("CrawlerService", () => {
     expect(result.pages).toHaveLength(2);
     expect(calls).toContain("https://example.com/about/");
   });
+
+  it("emits progress callbacks during the crawl lifecycle", async () => {
+    const eventTypes: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      if (input === "https://example.com/") {
+        return createResponse({
+          body: `
+            <html><head><title>Home</title><meta name="description" content="Home"></head>
+            <body><h1>Home</h1><a href="/about">About</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://example.com/about") {
+        return createResponse({
+          body: `<html><head><title>About</title></head><body><h1>About</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+
+    await crawler.crawl({
+      rootUrl: "https://example.com/",
+      config: createCrawlerConfig(),
+      onProgress(event) {
+        eventTypes.push(event.type);
+      }
+    });
+
+    expect(eventTypes).toContain("scan_started");
+    expect(eventTypes).toContain("page_queued");
+    expect(eventTypes).toContain("page_started");
+    expect(eventTypes).toContain("page_finished");
+    expect(eventTypes).toContain("scan_completed");
+  });
 });

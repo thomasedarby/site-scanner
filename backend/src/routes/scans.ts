@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { LoadedScannerConfig } from "../config/scannerConfig.js";
 import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
-import { ScanExecutionError, type ScanService } from "../services/scanService.js";
+import type { ScanService } from "../services/scanService.js";
 import type { ScanSummary } from "../types/scan.js";
 
 export interface ScansRouteDependencies {
@@ -16,6 +16,7 @@ function buildScanLinks(id: string) {
     compare: `/api/scans/${id}/compare`,
     csv: `/api/scans/${id}/pages.csv`,
     details: `/api/scans/${id}`,
+    status: `/api/scans/${id}/status`,
     sitemap: `/api/scans/${id}/sitemap.mmd`
   };
 }
@@ -138,21 +139,23 @@ export async function registerScanRoutes(
         maxPages
       }, scannerConfig);
 
-      return reply.code(201).send(toCreateScanResponse(scan));
+      return reply.code(202).send(toCreateScanResponse(scan));
     } catch (error) {
-      if (error instanceof ScanExecutionError) {
-        return reply.code(500).send({
-          error: "Scan failed",
-          message: error.message,
-          scanId: error.scanId
-        });
-      }
-
       return reply.code(400).send({
         error: "Invalid scan request",
         message: error instanceof Error ? error.message : "Invalid scan request"
       });
     }
+  });
+
+  app.get("/api/scans/:id/status", async (request, reply) => {
+    const status = await dependencies.scanService.getScanStatus((request.params as { id: string }).id);
+
+    if (!status) {
+      return sendNotFound(reply);
+    }
+
+    return status;
   });
 
   app.get("/api/scans", async () => {

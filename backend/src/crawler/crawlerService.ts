@@ -5,7 +5,14 @@ import { load } from "cheerio";
 import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, isSameOrigin, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
 import type { ScanPage } from "../types/scan.js";
-import type { CrawlRequest, CrawlResult, CrawlerDependencies, FetchLike, FetchResponseLike } from "./types.js";
+import type {
+  CrawlProgressEvent,
+  CrawlRequest,
+  CrawlResult,
+  CrawlerDependencies,
+  FetchLike,
+  FetchResponseLike
+} from "./types.js";
 
 const DOCUMENT_EXTENSIONS = new Set([
   ".pdf",
@@ -167,6 +174,17 @@ function defaultFetch(input: string, init?: Parameters<typeof fetch>[1]) {
   return fetch(input, init);
 }
 
+async function emitProgress(
+  request: CrawlRequest,
+  event: CrawlProgressEvent
+) {
+  if (!request.onProgress) {
+    return;
+  }
+
+  await request.onProgress(event);
+}
+
 async function fetchHtmlWithRedirectChecks(
   url: URL,
   rootUrl: URL,
@@ -310,8 +328,34 @@ export class CrawlerService {
     const seen = new Set<string>([rootUrl.toString()]);
     const pages: ScanPage[] = [];
 
+    await emitProgress(request, {
+      type: "scan_started",
+      crawledPages: 0,
+      currentUrl: rootUrl.toString(),
+      maxPages: request.config.maxPages,
+      message: "Scan started",
+      queuedPages: queue.length
+    });
+    await emitProgress(request, {
+      type: "page_queued",
+      crawledPages: 0,
+      currentUrl: rootUrl.toString(),
+      maxPages: request.config.maxPages,
+      message: "Queued root URL",
+      queuedPages: queue.length
+    });
+
     while (queue.length > 0 && pages.length < request.config.maxPages) {
       const current = queue.shift()!;
+
+      await emitProgress(request, {
+        type: "page_started",
+        crawledPages: pages.length,
+        currentUrl: current.url.toString(),
+        maxPages: request.config.maxPages,
+        message: "Crawling page",
+        queuedPages: queue.length
+      });
 
       if (pages.length > 0 && request.config.crawlDelayMs > 0) {
         await this.sleepImpl(request.config.crawlDelayMs);
@@ -362,11 +406,27 @@ export class CrawlerService {
 
           if (classification === "external") {
             externalLinkCount += 1;
+            void emitProgress(request, {
+              type: "page_skipped",
+              crawledPages: pages.length,
+              currentUrl: candidateUrl.toString(),
+              maxPages: request.config.maxPages,
+              message: "Link was outside the crawl boundary",
+              queuedPages: queue.length
+            });
             return;
           }
 
           if (classification === "internal-document") {
             documentLinkCount += 1;
+            void emitProgress(request, {
+              type: "page_skipped",
+              crawledPages: pages.length,
+              currentUrl: candidateUrl.toString(),
+              maxPages: request.config.maxPages,
+              message: "Document link counted but not crawled",
+              queuedPages: queue.length
+            });
             return;
           }
 
@@ -383,11 +443,19 @@ export class CrawlerService {
                 parentUrl: finalUrl.toString(),
                 url: candidateUrl
               });
+              void emitProgress(request, {
+                type: "page_queued",
+                crawledPages: pages.length,
+                currentUrl: candidateUrl.toString(),
+                maxPages: request.config.maxPages,
+                message: "Queued linked page",
+                queuedPages: queue.length
+              });
             }
           }
         });
 
-        pages.push({
+        const page = {
           url: current.url.toString(),
           normalizedUrl: current.url.toString(),
           path: current.url.pathname || "/",
@@ -404,17 +472,44 @@ export class CrawlerService {
           wordCount: approximateWordCount($("body").text()),
           contentHash: contentHash(body),
           crawlError: null
+        };
+        pages.push(page);
+        await emitProgress(request, {
+          type: "page_finished",
+          crawledPages: pages.length,
+          currentUrl: finalUrl.toString(),
+          maxPages: request.config.maxPages,
+          message: "Page crawled",
+          page,
+          queuedPages: queue.length
         });
       } catch (error) {
-        pages.push(
-          buildErrorPage(
-            current.url,
-            current.parentUrl,
-            error instanceof Error ? error.message : "Unknown crawl error"
-          )
+        const page = buildErrorPage(
+          current.url,
+          current.parentUrl,
+          error instanceof Error ? error.message : "Unknown crawl error"
         );
+        pages.push(page);
+        await emitProgress(request, {
+          type: "page_failed",
+          crawledPages: pages.length,
+          currentUrl: current.url.toString(),
+          maxPages: request.config.maxPages,
+          message: page.crawlError ?? "Page failed",
+          page,
+          queuedPages: queue.length
+        });
       }
     }
+
+    await emitProgress(request, {
+      type: "scan_completed",
+      crawledPages: pages.length,
+      currentUrl: null,
+      maxPages: request.config.maxPages,
+      message: "Scan completed",
+      queuedPages: queue.length
+    });
 
     return {
       rootUrl: rootUrl.toString(),

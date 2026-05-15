@@ -14,6 +14,7 @@ export interface CrawlConfig {
 export interface CrawlRequest {
   rootUrl: string;
   config: CrawlConfig;
+  onProgress?: (event: CrawlProgressEvent) => void | Promise<void>;
 }
 
 export interface CrawlResult {
@@ -22,6 +23,23 @@ export interface CrawlResult {
   hostname: string;
   pathBoundary: string | null;
   pages: ScanPage[];
+}
+
+export interface CrawlProgressEvent {
+  type:
+    | "scan_started"
+    | "page_queued"
+    | "page_started"
+    | "page_finished"
+    | "page_failed"
+    | "page_skipped"
+    | "scan_completed";
+  crawledPages: number;
+  currentUrl: string | null;
+  maxPages: number;
+  message: string;
+  page?: ScanPage;
+  queuedPages: number;
 }
 
 export interface FetchResponseLike {

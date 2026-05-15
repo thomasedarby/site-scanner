@@ -81,6 +81,26 @@
         </div>
 
         <div id="latest-scan" class="hidden">
+          <section id="scan-status-panel" class="status-panel hidden" aria-live="polite">
+            <div class="status-header">
+              <div>
+                <h3>Scan Status</h3>
+                <p id="scan-status-message" class="panel-copy">Waiting for updates.</p>
+              </div>
+              <div class="status-indicator">
+                <span id="scan-status-spinner" class="spinner hidden" aria-hidden="true"></span>
+                <span id="scan-status-badge" class="status-pill">queued</span>
+              </div>
+            </div>
+            <div id="scan-progress-shell" class="progress-shell hidden">
+              <div class="progress-track">
+                <div id="scan-progress-bar" class="progress-bar"></div>
+              </div>
+              <div id="scan-progress-text" class="helper">Preparing scan…</div>
+            </div>
+            <dl id="scan-status-grid" class="summary-grid status-grid"></dl>
+          </section>
+
           <dl id="summary-grid" class="summary-grid"></dl>
 
           <div class="link-row">

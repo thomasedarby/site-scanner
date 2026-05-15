@@ -238,7 +238,21 @@ function inlineComputedStyles(sourceElement, clonedElement) {
   }
 }
 
-function sanitiseSvgForExport(svgElement) {
+function removeUnsafeSvgContent(svgElement) {
+  for (const scriptNode of svgElement.querySelectorAll("script")) {
+    scriptNode.remove();
+  }
+
+  for (const node of svgElement.querySelectorAll("*")) {
+    for (const attributeName of node.getAttributeNames()) {
+      if (attributeName.toLowerCase().startsWith("on")) {
+        node.removeAttribute(attributeName);
+      }
+    }
+  }
+}
+
+function buildExportSvgMarkup(svgElement) {
   const exportedSvg = svgElement.cloneNode(true);
   const renderedWidth = svgElement.viewBox.baseVal.width || svgElement.getBoundingClientRect().width || 1200;
   const renderedHeight = svgElement.viewBox.baseVal.height || svgElement.getBoundingClientRect().height || 800;
@@ -252,34 +266,10 @@ function sanitiseSvgForExport(svgElement) {
     exportedSvg.setAttribute("viewBox", `0 0 ${Math.ceil(renderedWidth)} ${Math.ceil(renderedHeight)}`);
   }
 
+  // Mermaid labels may be rendered as SVG text or foreignObject HTML. Preserve the
+  // displayed structure and copy computed styles onto the cloned export tree first.
   inlineComputedStyles(svgElement, exportedSvg);
-
-  for (const node of exportedSvg.querySelectorAll("script, foreignObject")) {
-    node.remove();
-  }
-
-  for (const styleNode of exportedSvg.querySelectorAll("style")) {
-    styleNode.remove();
-  }
-
-  for (const node of exportedSvg.querySelectorAll("*")) {
-    node.removeAttribute("class");
-    node.removeAttribute("tabindex");
-    node.removeAttribute("aria-labelledby");
-    node.removeAttribute("aria-describedby");
-
-    if (node.tagName.toLowerCase() === "a") {
-      node.removeAttribute("href");
-      node.removeAttribute("xlink:href");
-      node.removeAttribute("target");
-      node.removeAttribute("rel");
-    }
-
-    if (node.tagName.toLowerCase() === "image" || node.tagName.toLowerCase() === "use") {
-      node.removeAttribute("href");
-      node.removeAttribute("xlink:href");
-    }
-  }
+  removeUnsafeSvgContent(exportedSvg);
 
   const backgroundRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   backgroundRect.setAttribute("x", "0");
@@ -306,7 +296,7 @@ function downloadSvg() {
     return;
   }
 
-  const { svgMarkup } = sanitiseSvgForExport(svgElement);
+  const { svgMarkup } = buildExportSvgMarkup(svgElement);
   downloadBlob(
     `scan-${scanId || "sitemap"}.svg`,
     new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" })
@@ -323,7 +313,7 @@ async function downloadPng() {
     return;
   }
 
-  const { svgMarkup, width, height } = sanitiseSvgForExport(svgElement);
+  const { svgMarkup, width, height } = buildExportSvgMarkup(svgElement);
   const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
   const objectUrl = URL.createObjectURL(svgBlob);
 

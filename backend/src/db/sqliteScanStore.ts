@@ -459,4 +459,22 @@ export class SqliteScanStore {
 
     await this.persist();
   }
+
+  async markInProgressScansFailed(message: string) {
+    const database = await this.getDatabase();
+    const failedAt = new Date().toISOString();
+
+    database.run(
+      `
+        UPDATE scans
+        SET status = 'failed',
+            error_message = ?,
+            end_time = ?
+        WHERE status IN ('queued', 'running')
+      `,
+      [message, failedAt]
+    );
+
+    await this.persist();
+  }
 }

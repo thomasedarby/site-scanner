@@ -263,6 +263,59 @@ button:hover:not(:disabled),
   color: var(--muted);
 }
 
+.status-panel {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: #f8f4ee;
+}
+
+.status-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.status-indicator {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(31, 107, 87, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.progress-shell {
+  margin-top: 14px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: #e7ddcf;
+  overflow: hidden;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #4c8f78);
+  transition: width 180ms ease;
+}
+
+.status-grid {
+  margin-top: 14px;
+}
+
 .message {
   padding: 14px 16px;
   border-radius: 12px;
@@ -438,6 +491,12 @@ button:hover:not(:disabled),
 
 .hidden {
   display: none !important;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 860px) {

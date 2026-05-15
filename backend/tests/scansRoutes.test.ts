@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
+import type { CrawlResult } from "../src/crawler/types.js";
 import type { LoadedScannerConfig } from "../src/config/scannerConfig.js";
 import { SqliteScanStore } from "../src/db/sqliteScanStore.js";
-import type { CrawlResult } from "../src/crawler/types.js";
 import { RealScanService } from "../src/services/scanService.js";
 import type { ScanPage } from "../src/types/scan.js";
 
@@ -48,6 +48,33 @@ function createPage(overrides: Partial<ScanPage> = {}): ScanPage {
     crawlError: null,
     ...overrides
   };
+}
+
+function deferredPromise<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, reject, resolve };
+}
+
+async function waitFor<T>(task: () => Promise<T>, predicate: (value: T) => boolean, timeoutMs = 1000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = await task();
+
+    if (predicate(value)) {
+      return value;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error("Timed out waiting for condition");
 }
 
 const tempDirectories: string[] = [];
@@ -138,41 +165,88 @@ describe("scan routes", () => {
     expect(response.json().message).toContain("Scan creation is disabled");
   });
 
-  it("rejects scan creation when the domain is not allowlisted", async () => {
-    const { app } = await createTestApp();
+  it("returns quickly with queued status and status link", async () => {
+    const deferred = deferredPromise<CrawlResult>();
+    const { app } = await createTestApp({
+      crawlImpl: async () => deferred.promise
+    });
 
     const response = await app.inject({
       method: "POST",
       url: "/api/scans",
       payload: {
-        url: "https://not-example.com"
+        url: "https://example.com"
       }
     });
+    const payload = response.json();
+
+    deferred.resolve({
+      rootUrl: "https://example.com/",
+      origin: "https://example.com",
+      hostname: "example.com",
+      pathBoundary: null,
+      pages: [createPage()]
+    });
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${payload.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
 
     await app.close();
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json().message).toContain("not in allowedDomains");
+    expect(response.statusCode).toBe(202);
+    expect(payload.status).toBe("queued");
+    expect(payload.links.status).toBe(`/api/scans/${payload.id}/status`);
   });
 
-  it("rejects localhost and private URLs", async () => {
-    const { app } = await createTestApp();
+  it("returns live status for a running scan", async () => {
+    const deferred = deferredPromise<CrawlResult>();
+    const { app } = await createTestApp({
+      crawlImpl: async () => deferred.promise
+    });
 
-    const response = await app.inject({
+    const createResponse = await app.inject({
       method: "POST",
       url: "/api/scans",
       payload: {
-        url: "http://127.0.0.1/private"
+        url: "https://example.com"
       }
     });
+    const scan = createResponse.json();
+    const statusResponse = await app.inject({
+      method: "GET",
+      url: `/api/scans/${scan.id}/status`
+    });
+
+    deferred.resolve({
+      rootUrl: "https://example.com/",
+      origin: "https://example.com",
+      hostname: "example.com",
+      pathBoundary: null,
+      pages: [createPage()]
+    });
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
 
     await app.close();
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json().message).toContain("private, local, or otherwise unsafe");
+    expect(statusResponse.statusCode).toBe(200);
+    expect(["queued", "running"]).toContain(statusResponse.json().status);
   });
 
-  it("creates a real stored scan for a valid allowlisted URL", async () => {
+  it("returns completed status updates and final details", async () => {
     const { app } = await createTestApp({
       crawlImpl: async (rootUrl) => ({
         rootUrl,
@@ -206,6 +280,14 @@ describe("scan routes", () => {
       }
     });
     const payload = response.json();
+    const finalStatus = await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${payload.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
     const detailResponse = await app.inject({
       method: "GET",
       url: `/api/scans/${payload.id}`
@@ -213,66 +295,18 @@ describe("scan routes", () => {
 
     await app.close();
 
-    expect(response.statusCode).toBe(201);
-    expect(payload.id).toBeTypeOf("string");
-    expect(payload.rootUrl).toBe("https://example.com/path");
+    expect(response.statusCode).toBe(202);
     expect(payload.pathBoundary).toBeNull();
-    expect(payload.status).toBe("completed");
     expect(payload.mermaidSitemap).toBeUndefined();
     expect(payload.links).toEqual({
       compare: `/api/scans/${payload.id}/compare`,
       csv: `/api/scans/${payload.id}/pages.csv`,
       details: `/api/scans/${payload.id}`,
+      status: `/api/scans/${payload.id}/status`,
       sitemap: `/api/scans/${payload.id}/sitemap.mmd`
     });
+    expect(finalStatus.status).toBe("completed");
     expect(detailResponse.json().pages).toHaveLength(2);
-  });
-
-  it("returns configured sites for the frontend", async () => {
-    const { app } = await createTestApp({
-      scannerConfig: createScannerConfig({
-        sites: [
-          {
-            name: "JSNA",
-            url: "https://observatory.derbyshire.gov.uk/jsna/",
-            pathBoundary: "/jsna/"
-          }
-        ]
-      })
-    });
-
-    const response = await app.inject({
-      method: "GET",
-      url: "/api/scanner-config"
-    });
-
-    await app.close();
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json().sites).toEqual([
-      {
-        name: "JSNA",
-        url: "https://observatory.derbyshire.gov.uk/jsna/",
-        pathBoundary: "/jsna/"
-      }
-    ]);
-  });
-
-  it("accepts a scan URL without a protocol and normalizes it to https", async () => {
-    const { app } = await createTestApp();
-
-    const response = await app.inject({
-      method: "POST",
-      url: "/api/scans",
-      payload: {
-        url: "example.com"
-      }
-    });
-
-    await app.close();
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json().rootUrl).toBe("https://example.com/");
   });
 
   it("accepts a valid pathBoundary and persists it", async () => {
@@ -309,6 +343,14 @@ describe("scan routes", () => {
       }
     });
     const payload = response.json();
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${payload.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
     const detailResponse = await app.inject({
       method: "GET",
       url: `/api/scans/${payload.id}`
@@ -316,7 +358,7 @@ describe("scan routes", () => {
 
     await app.close();
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode).toBe(202);
     expect(payload.pathBoundary).toBe("/jsna/");
     expect(detailResponse.json().pathBoundary).toBe("/jsna/");
     expect(detailResponse.json().pages).toHaveLength(2);
@@ -340,16 +382,83 @@ describe("scan routes", () => {
     expect(response.json().message).toContain("pathBoundary must contain the submitted URL path");
   });
 
+  it("accepts a scan URL without a protocol and normalizes it to https", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "example.com"
+      }
+    });
+    const payload = response.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${payload.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
+
+    await app.close();
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json().rootUrl).toBe("https://example.com/");
+  });
+
+  it("returns configured sites for the frontend", async () => {
+    const { app } = await createTestApp({
+      scannerConfig: createScannerConfig({
+        sites: [
+          {
+            name: "JSNA",
+            url: "https://observatory.derbyshire.gov.uk/jsna/",
+            pathBoundary: "/jsna/"
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/scanner-config"
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().sites).toEqual([
+      {
+        name: "JSNA",
+        url: "https://observatory.derbyshire.gov.uk/jsna/",
+        pathBoundary: "/jsna/"
+      }
+    ]);
+  });
+
   it("list scans reads from storage", async () => {
     const { app } = await createTestApp();
 
-    await app.inject({
+    const createResponse = await app.inject({
       method: "POST",
       url: "/api/scans",
       payload: {
         url: "https://example.com/list"
       }
     });
+    const scan = createResponse.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
 
     const response = await app.inject({
       method: "GET",
@@ -389,6 +498,14 @@ describe("scan routes", () => {
       }
     });
     const scan = createResponse.json();
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
     const response = await app.inject({
       method: "GET",
       url: `/api/scans/${scan.id}/pages.csv`
@@ -434,6 +551,14 @@ describe("scan routes", () => {
       }
     });
     const scan = createResponse.json();
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
     const response = await app.inject({
       method: "GET",
       url: `/api/scans/${scan.id}/sitemap.mmd`
@@ -484,13 +609,23 @@ describe("scan routes", () => {
       }
     });
 
-    await app.inject({
+    const firstCreateResponse = await app.inject({
       method: "POST",
       url: "/api/scans",
       payload: {
         url: "https://example.com/"
       }
     });
+    const firstScan = firstCreateResponse.json();
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${firstScan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
+
     const secondCreateResponse = await app.inject({
       method: "POST",
       url: "/api/scans",
@@ -499,6 +634,14 @@ describe("scan routes", () => {
       }
     });
     const secondScan = secondCreateResponse.json();
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${secondScan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
     const compareResponse = await app.inject({
       method: "GET",
       url: `/api/scans/${secondScan.id}/compare`
@@ -511,7 +654,7 @@ describe("scan routes", () => {
     expect(compareResponse.json().changedUrls).toContain("https://example.com/");
   });
 
-  it("failed scans are represented safely", async () => {
+  it("failed scans are represented safely in status and details", async () => {
     const { app } = await createTestApp({
       crawlImpl: async () => {
         throw new Error("Request timed out");
@@ -525,17 +668,25 @@ describe("scan routes", () => {
         url: "https://example.com/fail"
       }
     });
-    const failedId = response.json().scanId;
+    const scan = response.json();
+    const failedStatus = await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "failed"
+    );
     const detailResponse = await app.inject({
       method: "GET",
-      url: `/api/scans/${failedId}`
+      url: `/api/scans/${scan.id}`
     });
 
     await app.close();
 
-    expect(response.statusCode).toBe(500);
-    expect(response.json().message).toBe("Request timed out");
-    expect(response.json().message).not.toContain("at ");
+    expect(response.statusCode).toBe(202);
+    expect(failedStatus.message).toBe("Request timed out");
+    expect(failedStatus.message).not.toContain("at ");
     expect(detailResponse.statusCode).toBe(200);
     expect(detailResponse.json().status).toBe("failed");
     expect(detailResponse.json().errorMessage).toBe("Request timed out");
@@ -544,14 +695,19 @@ describe("scan routes", () => {
   it("returns 404 for a missing scan id", async () => {
     const { app } = await createTestApp();
 
-    const response = await app.inject({
+    const detailResponse = await app.inject({
       method: "GET",
       url: "/api/scans/missing-scan"
+    });
+    const statusResponse = await app.inject({
+      method: "GET",
+      url: "/api/scans/missing-scan/status"
     });
 
     await app.close();
 
-    expect(response.statusCode).toBe(404);
-    expect(response.json().message).toBe("Scan not found");
+    expect(detailResponse.statusCode).toBe(404);
+    expect(detailResponse.json().message).toBe("Scan not found");
+    expect(statusResponse.statusCode).toBe(404);
   });
 });

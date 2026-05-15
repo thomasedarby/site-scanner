@@ -45,6 +45,20 @@ export interface ScanRecord extends ScanSummary {
   pages: ScanPage[];
 }
 
+export interface ScanStatus {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  totalPagesCrawled: number;
+  pagesQueued: number | null;
+  maxPages: number | null;
+  progressPercent: number | null;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+  currentUrl: string | null;
+  message: string;
+}
+
 export interface ScanComparison {
   scanId: string;
   previousScanId: string | null;
