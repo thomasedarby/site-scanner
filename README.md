@@ -200,7 +200,7 @@ If you want the older strict behavior, set:
 - `New Scan` lets users start a scan with a hostname or full URL.
 - `New Scan` can also use configured site presets and an optional path boundary.
 - `Results` shows live scan status while a scan is running, then the stored summary, including the path boundary used, the page table, CSV access, inline sitemap viewing, and PDF export.
-- `Previous Scans` lists stored scans and lets users reopen them, open the sitemap viewer, export a printable report, or delete stored scans.
+- `Previous Scans` lists stored scans and lets users reopen them, export a summary CSV of stored reports, open the sitemap viewer, export a printable report, or delete stored scans.
 
 ### URL entry
 
@@ -235,6 +235,13 @@ If the site is configured in `scanner.config.json`, selecting that preset fills 
 - `Copy Page List` copies the current page rows as tab-separated text.
 - `Download CSV` uses the stored CSV export for the full page list.
 - The same CSV remains available from the API at `GET /api/scans/:id/pages.csv`.
+
+### Previous scans summary CSV
+
+- The `Previous Scans` tab includes `Export Previous Scans CSV`.
+- That export downloads a summary CSV of all stored scan reports, ordered newest first.
+- Use `GET /api/scans.csv` for the scan/report summary CSV.
+- Use `GET /api/scans/:id/pages.csv` for the page-level CSV for a single scan.
 
 ### Previous scan cleanup
 

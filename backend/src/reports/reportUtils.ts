@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { ScanComparison, ScanPage, ScanRecord } from "../types/scan.js";
+import type { ScanComparison, ScanPage, ScanRecord, ScanSummary } from "../types/scan.js";
 
 const DEFAULT_MAX_MERMAID_NODES = 200;
 
@@ -81,6 +81,58 @@ export function generatePagesCsv(pages: ScanPage[]): string {
       .map(escapeCsv)
       .join(",")
   );
+
+  return [headers.join(","), ...rows].join("\n");
+}
+
+export function generateScansCsv(scans: ScanSummary[]): string {
+  const headers = [
+    "Scan ID",
+    "Root URL",
+    "Hostname",
+    "Status",
+    "Started",
+    "Finished",
+    "Duration seconds",
+    "Path boundary",
+    "Total pages crawled",
+    "Total images found",
+    "Total documents linked",
+    "Broken internal links",
+    "Pages missing title",
+    "Pages missing meta description",
+    "Pages with no H1",
+    "Error message"
+  ];
+
+  const rows = scans.map((scan) => {
+    const startedAt = new Date(scan.startTime).getTime();
+    const finishedAt = new Date(scan.endTime).getTime();
+    const durationSeconds = Number.isNaN(startedAt) || Number.isNaN(finishedAt) || finishedAt < startedAt
+      ? ""
+      : Math.round((finishedAt - startedAt) / 1000);
+
+    return [
+      scan.id,
+      scan.rootUrl,
+      scan.hostname,
+      scan.status,
+      scan.startTime,
+      scan.endTime,
+      durationSeconds,
+      scan.pathBoundary,
+      scan.totalPagesCrawled,
+      scan.totalImagesFound,
+      scan.totalDocumentsLinked,
+      scan.brokenInternalLinks,
+      scan.pagesMissingTitle,
+      scan.pagesMissingMetaDescription,
+      scan.pagesWithNoH1,
+      scan.errorMessage
+    ]
+      .map((value) => escapeCsv(value ?? null))
+      .join(",");
+  });
 
   return [headers.join(","), ...rows].join("\n");
 }

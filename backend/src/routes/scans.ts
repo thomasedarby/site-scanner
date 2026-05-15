@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import type { LoadedScannerConfig } from "../config/scannerConfig.js";
+import { generateScansCsv } from "../reports/reportUtils.js";
 import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
 import type { ScanService } from "../services/scanService.js";
@@ -162,6 +163,16 @@ export async function registerScanRoutes(
     return {
       items: await dependencies.scanService.listScans()
     };
+  });
+
+  app.get("/api/scans.csv", async (request, reply) => {
+    const scans = await dependencies.scanService.listScans();
+    const csv = generateScansCsv(scans);
+
+    reply.header("content-type", "text/csv; charset=utf-8");
+    reply.header("content-disposition", 'attachment; filename="site-scans.csv"');
+
+    return csv;
   });
 
   app.get("/api/scans/:id", async (request, reply) => {

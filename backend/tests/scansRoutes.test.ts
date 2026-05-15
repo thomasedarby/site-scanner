@@ -472,6 +472,107 @@ describe("scan routes", () => {
     expect(response.json().items[0].status).toBe("completed");
   });
 
+  it("returns a headers-only previous scans csv when there are no scans", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/scans.csv"
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/csv");
+    expect(response.headers["content-disposition"]).toBe('attachment; filename="site-scans.csv"');
+    expect(response.body.trim()).toBe(
+      "Scan ID,Root URL,Hostname,Status,Started,Finished,Duration seconds,Path boundary,Total pages crawled,Total images found,Total documents linked,Broken internal links,Pages missing title,Pages missing meta description,Pages with no H1,Error message"
+    );
+  });
+
+  it("returns a previous scans csv ordered newest first with completed and failed rows", async () => {
+    const { app } = await createTestApp({
+      crawlImpl: async (rootUrl) => {
+        if (rootUrl.includes("failed-report")) {
+          throw new Error('Failed, "quoted"\nnext line');
+        }
+
+        return {
+          rootUrl,
+          origin: "https://example.com",
+          hostname: "example.com",
+          pathBoundary: rootUrl.includes("/section/") ? "/section/" : null,
+          pages: [
+            createPage({
+              url: rootUrl,
+              normalizedUrl: rootUrl,
+              path: rootUrl.includes("/section/") ? "/section/" : "/",
+              finalUrl: rootUrl,
+              title: "Completed report",
+              imageCount: 4,
+              documentLinkCount: 2,
+              contentHash: `hash-${rootUrl}`
+            })
+          ]
+        };
+      }
+    });
+
+    const completedResponse = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/section/",
+        pathBoundary: "/section/"
+      }
+    });
+    const completedScan = completedResponse.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${completedScan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
+
+    const failedResponse = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/failed-report"
+      }
+    });
+    const failedScan = failedResponse.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${failedScan.id}/status`
+        })).json(),
+      (status) => status.status === "failed"
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/scans.csv"
+    });
+
+    await app.close();
+
+    const responseBody = response.body;
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/csv");
+    expect(responseBody).toContain("Scan ID,Root URL,Hostname,Status");
+    expect(responseBody).toContain('"Failed, ""quoted""');
+    expect(responseBody).toContain("next line");
+    expect(responseBody).toContain("/section/");
+    expect(responseBody.indexOf(failedScan.id)).toBeLessThan(responseBody.indexOf(completedScan.id));
+  });
+
   it("deletes a completed scan and removes it from the list", async () => {
     const { app } = await createTestApp();
 

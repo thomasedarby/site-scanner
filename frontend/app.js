@@ -42,6 +42,7 @@ const sitemapError = document.getElementById("sitemap-error");
 const sitemapDiagramShell = document.getElementById("sitemap-diagram-shell");
 const sitemapDiagram = document.getElementById("sitemap-diagram");
 const refreshScansButton = document.getElementById("refresh-scans");
+const previousScansCsvLink = document.getElementById("previous-scans-csv-link");
 const scanList = document.getElementById("scan-list");
 const scanListEmpty = document.getElementById("scan-list-empty");
 const scanListError = document.getElementById("scan-list-error");
@@ -84,6 +85,8 @@ function joinApi(path) {
 
   return baseUrl ? `${baseUrl}${normalisedPath}` : normalisedPath;
 }
+
+previousScansCsvLink.href = joinApi("/api/scans.csv");
 
 function buildScanLinks(id) {
   return {
