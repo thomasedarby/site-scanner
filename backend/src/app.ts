@@ -2,11 +2,11 @@ import Fastify, { type FastifyServerOptions } from "fastify";
 
 import { loadScannerConfig, type LoadedScannerConfig } from "./config/scannerConfig.js";
 import { registerScanRoutes } from "./routes/scans.js";
-import { MockScanService } from "./services/mockScanService.js";
+import { RealScanService, type ScanService } from "./services/scanService.js";
 
 export interface AppDependencies {
   loadScannerConfig?: () => LoadedScannerConfig;
-  scanService?: MockScanService;
+  scanService?: ScanService;
 }
 
 export function buildApp(
@@ -15,13 +15,25 @@ export function buildApp(
 ) {
   const app = Fastify(options);
   const scannerConfigLoader = dependencies.loadScannerConfig ?? (() => loadScannerConfig());
-  const scanService = dependencies.scanService ?? new MockScanService();
+  const scanService = dependencies.scanService ?? new RealScanService();
 
   app.get("/health", async () => {
     return {
       status: "ok"
     };
   });
+
+  if (scanService.initialize) {
+    app.addHook("onReady", async () => {
+      await scanService.initialize!();
+    });
+  }
+
+  if (scanService.close) {
+    app.addHook("onClose", async () => {
+      await scanService.close!();
+    });
+  }
 
   void registerScanRoutes(app, {
     loadScannerConfig: scannerConfigLoader,

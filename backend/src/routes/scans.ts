@@ -2,11 +2,11 @@ import type { FastifyInstance } from "fastify";
 
 import type { LoadedScannerConfig } from "../config/scannerConfig.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
-import { MockScanService } from "../services/mockScanService.js";
+import { ScanExecutionError, type ScanService } from "../services/scanService.js";
 
 export interface ScansRouteDependencies {
   loadScannerConfig: () => LoadedScannerConfig;
-  scanService: MockScanService;
+  scanService: ScanService;
 }
 
 function sendNotFound(reply: Parameters<FastifyInstance["get"]>[1] extends never ? never : any) {
@@ -81,13 +81,21 @@ export async function registerScanRoutes(
     try {
       const normalizedUrl = validateSubmittedUrl(body.url, scannerConfig);
       const maxPages = validateMaxPages(body.maxPages, scannerConfig);
-      const scan = dependencies.scanService.createScan({
+      const scan = await dependencies.scanService.createScan({
         url: normalizedUrl.toString(),
         maxPages
-      });
+      }, scannerConfig);
 
       return reply.code(201).send(scan);
     } catch (error) {
+      if (error instanceof ScanExecutionError) {
+        return reply.code(500).send({
+          error: "Scan failed",
+          message: error.message,
+          scanId: error.scanId
+        });
+      }
+
       return reply.code(400).send({
         error: "Invalid scan request",
         message: error instanceof Error ? error.message : "Invalid scan request"
@@ -97,12 +105,12 @@ export async function registerScanRoutes(
 
   app.get("/api/scans", async () => {
     return {
-      items: dependencies.scanService.listScans()
+      items: await dependencies.scanService.listScans()
     };
   });
 
   app.get("/api/scans/:id", async (request, reply) => {
-    const scan = dependencies.scanService.getScan((request.params as { id: string }).id);
+    const scan = await dependencies.scanService.getScan((request.params as { id: string }).id);
 
     if (!scan) {
       return sendNotFound(reply);
@@ -112,7 +120,7 @@ export async function registerScanRoutes(
   });
 
   app.get("/api/scans/:id/pages.csv", async (request, reply) => {
-    const csv = dependencies.scanService.getPagesCsv((request.params as { id: string }).id);
+    const csv = await dependencies.scanService.getPagesCsv((request.params as { id: string }).id);
 
     if (!csv) {
       return sendNotFound(reply);
@@ -123,7 +131,7 @@ export async function registerScanRoutes(
   });
 
   app.get("/api/scans/:id/sitemap.mmd", async (request, reply) => {
-    const sitemap = dependencies.scanService.getSitemap((request.params as { id: string }).id);
+    const sitemap = await dependencies.scanService.getSitemap((request.params as { id: string }).id);
 
     if (!sitemap) {
       return sendNotFound(reply);
@@ -134,7 +142,7 @@ export async function registerScanRoutes(
   });
 
   app.get("/api/scans/:id/compare", async (request, reply) => {
-    const comparison = dependencies.scanService.compareScan((request.params as { id: string }).id);
+    const comparison = await dependencies.scanService.compareScan((request.params as { id: string }).id);
 
     if (!comparison) {
       return sendNotFound(reply);

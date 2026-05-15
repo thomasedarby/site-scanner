@@ -63,3 +63,4 @@ The API will be available at `http://localhost:8080/health`.
 - `allowedDomains` protects against misuse by limiting future scans to explicitly approved public hostnames only.
 - If `allowedDomains` is empty, the backend still starts with safe defaults, but future scan creation must be rejected by the API layer.
 - `data/` is reserved for runtime files and remains gitignored.
+- SQLite scan history is stored under `DATA_DIR`. If `DATA_DIR` is not set locally, the backend defaults to `./data/site-scanner.sqlite`. In Docker, the existing `.env.example` value points this to `/app/data/site-scanner.sqlite`.
