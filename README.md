@@ -93,6 +93,7 @@ The same container also works behind a reverse proxy because the frontend uses s
 - `scanner.config.json` is gitignored because it is an environment-specific safety control, not shared application code.
 - `allowedDomains` protects against misuse by limiting scans to explicitly approved public hostnames only.
 - If `allowedDomains` is empty, the backend still starts safely, but scan creation is rejected by the API layer.
+- For section scans, keep `allowedDomains` as hostnames only and use `pathBoundary` to restrict crawling to a subsection such as `/jsna/`.
 
 ### Allowed Domains
 
@@ -103,6 +104,35 @@ The same container also works behind a reverse proxy because the frontend uses s
 - `travelderbyshire.co.uk`
 
 Do not use full URLs or paths in `allowedDomains`.
+
+### Configured sites and section scans
+
+`sites` is optional. It lets you predefine named scan targets for the frontend, including section-limited scans.
+
+Example:
+
+```json
+{
+  "sites": [
+    {
+      "name": "JSNA",
+      "url": "https://observatory.derbyshire.gov.uk/jsna/",
+      "pathBoundary": "/jsna/"
+    }
+  ],
+  "allowedDomains": [
+    "observatory.derbyshire.gov.uk",
+    "www.observatory.derbyshire.gov.uk"
+  ]
+}
+```
+
+Important:
+
+- `site.url` must be a full `http` or `https` URL.
+- `site.url` hostname must already be present in `allowedDomains`.
+- `pathBoundary` must be a path only, such as `/jsna/`.
+- `pathBoundary` is how you restrict a scan to one section without putting paths into `allowedDomains`.
 
 ### www and non-www crawling
 
@@ -120,6 +150,26 @@ Example:
 - the crawler may follow links between those two hosts
 
 It will still not crawl unrelated allowlisted domains during the same scan.
+
+### Path boundaries
+
+If a scan starts at `https://observatory.derbyshire.gov.uk/jsna/` and uses `pathBoundary: "/jsna/"`, the crawler will stay inside that section.
+
+Allowed:
+
+- `https://observatory.derbyshire.gov.uk/jsna/`
+- `https://observatory.derbyshire.gov.uk/jsna`
+- `https://observatory.derbyshire.gov.uk/jsna/page-one/`
+- `https://observatory.derbyshire.gov.uk/jsna/subfolder/page-two/`
+
+Rejected as outside the path boundary:
+
+- `https://observatory.derbyshire.gov.uk/`
+- `https://observatory.derbyshire.gov.uk/about/`
+- `https://observatory.derbyshire.gov.uk/other-section/`
+- `https://observatory.derbyshire.gov.uk/jsna-old/`
+
+Path boundaries still respect the existing allowlisted host rules. If `crawlAllowedHostVariants` is enabled and both `observatory.derbyshire.gov.uk` and `www.observatory.derbyshire.gov.uk` are allowlisted, the crawler may cross between those two hosts only when the URL is still inside the same path boundary.
 
 If you want the older strict behavior, set:
 
@@ -148,7 +198,8 @@ If you want the older strict behavior, set:
 ### Dashboard flow
 
 - `New Scan` lets users start a scan with a hostname or full URL.
-- `Results` shows the latest summary, the page table, CSV links, and sitemap actions.
+- `New Scan` can also use configured site presets and an optional path boundary.
+- `Results` shows the latest summary, including the path boundary used, the page table, CSV links, and sitemap actions.
 - `Previous Scans` lists stored scans and lets users reopen them in the Results tab.
 
 ### URL entry
@@ -161,6 +212,15 @@ Users can enter hostnames without typing `https://`, for example:
 
 The backend will normalize those to `https://...` automatically.
 
+### Scanning only one section such as `/jsna/`
+
+1. Enter the full section URL, for example `https://observatory.derbyshire.gov.uk/jsna/`
+2. Enable `Restrict crawl to this URL path`
+3. Confirm the boundary is `/jsna/`
+4. Start the scan
+
+If the site is configured in `scanner.config.json`, selecting that preset fills in the URL and path boundary automatically.
+
 ### Page list
 
 - The Results tab shows a filterable page table.
@@ -172,6 +232,7 @@ The backend will normalize those to `https://...` automatically.
 - `Open Sitemap` opens a larger full-page viewer in a new tab.
 - The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, and attempts PNG export in the browser.
 - If the browser blocks PNG export, the viewer falls back to SVG download with a friendly message.
+- SVG is the most reliable scalable export format. PNG is generated client-side in the browser.
 - `View Diagram Inline` keeps the existing in-page Mermaid preview for quick checks.
 - Large diagrams may need horizontal or vertical scrolling.
 
@@ -209,4 +270,5 @@ npm run build
 - There is no authentication yet.
 - `respectRobotsTxt` is present in config but not implemented in the crawler yet.
 - Mermaid rendering and client-side PNG export depend on browser support and the Mermaid CDN being reachable.
+- Path boundaries only limit which pages are crawled. Links outside the boundary may still be counted as links on in-boundary pages.
 - Previous scans loaded from storage do not currently preserve every transient request setting in the summary view, such as the requested page cap, unless they came from the current POST response.

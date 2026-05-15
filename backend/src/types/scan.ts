@@ -22,6 +22,7 @@ export interface ScanSummary {
   rootUrl: string;
   origin: string;
   hostname: string;
+  pathBoundary: string | null;
   startTime: string;
   endTime: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -62,4 +63,5 @@ export interface ScanComparison {
 export interface CreateScanInput {
   url: string;
   maxPages: number;
+  pathBoundary?: string | null;
 }

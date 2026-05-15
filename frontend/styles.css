@@ -32,7 +32,8 @@ body {
 
 button,
 input,
-a {
+a,
+select {
   font: inherit;
 }
 
@@ -168,7 +169,21 @@ input {
   color: var(--text);
 }
 
+select {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+}
+
 input:focus {
+  outline: 2px solid rgba(31, 107, 87, 0.18);
+  border-color: var(--accent);
+}
+
+select:focus {
   outline: 2px solid rgba(31, 107, 87, 0.18);
   border-color: var(--accent);
 }
@@ -185,6 +200,18 @@ input:focus {
 
 .grow {
   flex: 1 1 280px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.checkbox-row input {
+  width: auto;
+  margin: 0;
 }
 
 button,

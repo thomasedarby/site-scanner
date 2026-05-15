@@ -32,6 +32,7 @@ function createCrawlerConfig(overrides: Partial<CrawlConfig> = {}): CrawlConfig 
     crawlAllowedHostVariants: true,
     crawlDelayMs: 0,
     maxPages: 10,
+    pathBoundary: null,
     requestTimeoutMs: 1000,
     stripQueryStrings: true,
     userAgent: "Internal-SiteScanner/0.1",
@@ -459,5 +460,192 @@ describe("CrawlerService", () => {
     expect(result.pages).toHaveLength(1);
     expect(result.pages[0].externalLinkCount).toBe(1);
     expect(calls).toEqual(["https://example.com/"]);
+  });
+
+  it("allows pages inside a configured path boundary", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://example.com/jsna/") {
+        return createResponse({
+          body: `
+            <html><head><title>JSNA Home</title><meta name="description" content="Home"></head>
+            <body><h1>JSNA</h1><a href="/jsna/page-one/">Page one</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://example.com/jsna/page-one/") {
+        return createResponse({
+          body: `<html><head><title>Page one</title></head><body><h1>Page one</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/jsna/",
+      config: createCrawlerConfig({
+        pathBoundary: "/jsna/"
+      })
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(calls).toEqual(["https://example.com/jsna/", "https://example.com/jsna/page-one/"]);
+  });
+
+  it("allows the exact section root without a trailing slash inside the boundary", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://example.com/jsna") {
+        return createResponse({
+          body: `
+            <html><head><title>JSNA Home</title><meta name="description" content="Home"></head>
+            <body><h1>JSNA</h1><a href="/jsna/subfolder/page-two/">Page two</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://example.com/jsna/subfolder/page-two/") {
+        return createResponse({
+          body: `<html><head><title>Page two</title></head><body><h1>Page two</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/jsna",
+      config: createCrawlerConfig({
+        pathBoundary: "/jsna/"
+      })
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0].path).toBe("/jsna");
+  });
+
+  it("does not crawl paths outside the configured boundary", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      return createResponse({
+        body: `
+          <html><head><title>JSNA Home</title><meta name="description" content="Home"></head>
+          <body>
+            <h1>JSNA</h1>
+            <a href="/about/">About</a>
+            <a href="/jsna-old/">Old</a>
+          </body></html>
+        `,
+        headers: { "content-type": "text/html" },
+        url: input
+      });
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/jsna/",
+      config: createCrawlerConfig({
+        pathBoundary: "/jsna/"
+      })
+    });
+
+    expect(result.pages).toHaveLength(1);
+    expect(result.pages[0].externalLinkCount).toBe(2);
+    expect(calls).toEqual(["https://example.com/jsna/"]);
+  });
+
+  it("supports path boundaries across allowlisted www and non-www variants", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://example.com/jsna/") {
+        return createResponse({
+          body: `
+            <html><head><title>JSNA Home</title><meta name="description" content="Home"></head>
+            <body><h1>JSNA</h1><a href="https://www.example.com/jsna/page-one/">Page one</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://www.example.com/jsna/page-one/") {
+        return createResponse({
+          body: `<html><head><title>Page one</title></head><body><h1>Page one</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/jsna/",
+      config: createCrawlerConfig({
+        allowedDomains: ["example.com", "www.example.com"],
+        pathBoundary: "/jsna/"
+      })
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(calls).toContain("https://www.example.com/jsna/page-one/");
+  });
+
+  it("keeps existing behaviour when no path boundary is configured", async () => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (input) => {
+      calls.push(input);
+
+      if (input === "https://example.com/jsna/") {
+        return createResponse({
+          body: `
+            <html><head><title>Home</title><meta name="description" content="Home"></head>
+            <body><h1>Home</h1><a href="/about/">About</a></body></html>
+          `,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      if (input === "https://example.com/about/") {
+        return createResponse({
+          body: `<html><head><title>About</title></head><body><h1>About</h1></body></html>`,
+          headers: { "content-type": "text/html" },
+          url: input
+        });
+      }
+
+      throw new Error(`Unexpected fetch for ${input}`);
+    };
+
+    const crawler = new CrawlerService({ fetchImpl });
+    const result = await crawler.crawl({
+      rootUrl: "https://example.com/jsna/",
+      config: createCrawlerConfig()
+    });
+
+    expect(result.pages).toHaveLength(2);
+    expect(calls).toContain("https://example.com/about/");
   });
 });

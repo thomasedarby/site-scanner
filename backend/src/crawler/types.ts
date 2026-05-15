@@ -5,6 +5,7 @@ export interface CrawlConfig {
   crawlAllowedHostVariants: boolean;
   crawlDelayMs: number;
   maxPages: number;
+  pathBoundary: string | null;
   requestTimeoutMs: number;
   stripQueryStrings: boolean;
   userAgent: string;
@@ -19,6 +20,7 @@ export interface CrawlResult {
   rootUrl: string;
   origin: string;
   hostname: string;
+  pathBoundary: string | null;
   pages: ScanPage[];
 }
 

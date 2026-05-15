@@ -9,8 +9,13 @@ mermaid.initialize({
 });
 
 const form = document.getElementById("scan-form");
+const siteSelect = document.getElementById("site-select");
+const siteSelectHelp = document.getElementById("site-select-help");
 const urlInput = document.getElementById("url");
 const maxPagesInput = document.getElementById("maxPages");
+const restrictPathCheckbox = document.getElementById("restrict-path");
+const pathBoundaryField = document.getElementById("path-boundary-field");
+const pathBoundaryInput = document.getElementById("pathBoundary");
 const submitButton = document.getElementById("submit-button");
 const loadingState = document.getElementById("loading-state");
 const errorBox = document.getElementById("error-box");
@@ -55,6 +60,8 @@ let sitemapSource = "";
 let sitemapLoadedForScanId = null;
 let renderSequence = 0;
 let currentPageFilter = "";
+let availableSites = [];
+let pathBoundaryTouched = false;
 
 function normaliseApiBaseUrl(value) {
   const trimmedValue = String(value || "").trim();
@@ -164,6 +171,68 @@ function formatMaybeValue(value, fallback = "N/A") {
   return value === undefined || value === null || value === "" ? fallback : String(value);
 }
 
+function normaliseUserEnteredUrl(rawValue) {
+  const trimmedValue = String(rawValue || "").trim();
+
+  if (trimmedValue === "") {
+    return null;
+  }
+
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmedValue)
+    ? trimmedValue
+    : `https://${trimmedValue}`;
+
+  try {
+    return new URL(withProtocol);
+  } catch {
+    return null;
+  }
+}
+
+function normalisePathBoundaryValue(rawValue) {
+  const trimmedValue = String(rawValue || "").trim();
+
+  if (trimmedValue === "") {
+    return "";
+  }
+
+  if (!trimmedValue.startsWith("/")) {
+    return trimmedValue;
+  }
+
+  if (trimmedValue === "/") {
+    return "/";
+  }
+
+  return `${trimmedValue.replace(/\/+$/, "")}/`;
+}
+
+function deriveBoundaryFromUrlValue(rawUrl) {
+  const parsedUrl = normaliseUserEnteredUrl(rawUrl);
+
+  if (!parsedUrl || parsedUrl.pathname === "/" || parsedUrl.pathname === "") {
+    return "";
+  }
+
+  return normalisePathBoundaryValue(parsedUrl.pathname);
+}
+
+function updatePathBoundaryFieldVisibility() {
+  setHidden(pathBoundaryField, !restrictPathCheckbox.checked);
+}
+
+function maybePopulatePathBoundaryFromUrl() {
+  if (!restrictPathCheckbox.checked || pathBoundaryTouched) {
+    return;
+  }
+
+  const derivedBoundary = deriveBoundaryFromUrlValue(urlInput.value);
+
+  if (derivedBoundary) {
+    pathBoundaryInput.value = derivedBoundary;
+  }
+}
+
 function clearSitemapState() {
   sitemapSource = "";
   sitemapLoadedForScanId = null;
@@ -224,6 +293,7 @@ function renderSummary(scanSummary, scanDetails) {
   const items = [
     ["Root URL", scan.rootUrl],
     ["Hostname", scan.hostname],
+    ["Path Boundary", scan.pathBoundary || "None"],
     ["Status", scan.status],
     ["Started", formatDate(scan.startTime)],
     ["Finished", formatDate(scan.endTime)],
@@ -408,6 +478,32 @@ async function loadScanIntoResults(scanSummary) {
   switchTab("results");
 }
 
+function renderSiteOptions(sites) {
+  availableSites = sites;
+
+  if (sites.length === 0) {
+    siteSelect.innerHTML = '<option value="">Custom URL</option>';
+    siteSelectHelp.textContent = "Enter a custom URL and optionally restrict the crawl to its path.";
+    return;
+  }
+
+  siteSelect.innerHTML = [
+    '<option value="">Custom URL</option>',
+    ...sites.map((site, index) => `<option value="${index}">${escapeHtml(site.name)}</option>`)
+  ].join("");
+  siteSelectHelp.textContent = "Choose a configured section scan, or leave this on Custom URL.";
+}
+
+async function loadScannerConfig() {
+  try {
+    const config = await fetchJson("/api/scanner-config");
+    renderSiteOptions(config.sites || []);
+  } catch (error) {
+    console.debug("Scanner config could not be loaded for site presets.", error);
+    renderSiteOptions([]);
+  }
+}
+
 function renderScansList(items) {
   if (items.length === 0) {
     scanList.innerHTML = "";
@@ -428,6 +524,7 @@ function renderScansList(items) {
           </div>
           <div class="scan-meta">
             ${escapeHtml(`${scan.totalPagesCrawled} pages · ${scan.totalImagesFound} images · ${formatDate(scan.endTime)}`)}
+            ${scan.pathBoundary ? `<br>${escapeHtml(`Path boundary: ${scan.pathBoundary}`)}` : ""}
           </div>
           <div class="scan-links">
             <button class="button tertiary open-scan-button" type="button" data-scan-id="${escapeHtml(scan.id)}">Open Result</button>
@@ -649,6 +746,14 @@ form.addEventListener("submit", async (event) => {
     payload.maxPages = Number(maxPagesValue);
   }
 
+  if (restrictPathCheckbox.checked) {
+    const normalizedBoundary = normalisePathBoundaryValue(pathBoundaryInput.value);
+
+    if (normalizedBoundary) {
+      payload.pathBoundary = normalizedBoundary;
+    }
+  }
+
   submitButton.disabled = true;
   setHidden(loadingState, false);
 
@@ -667,6 +772,46 @@ form.addEventListener("submit", async (event) => {
     submitButton.disabled = false;
     setHidden(loadingState, true);
   }
+});
+
+siteSelect.addEventListener("change", () => {
+  const selectedIndex = siteSelect.value;
+
+  if (selectedIndex === "") {
+    pathBoundaryTouched = false;
+    return;
+  }
+
+  const selectedSite = availableSites[Number(selectedIndex)];
+
+  if (!selectedSite) {
+    return;
+  }
+
+  urlInput.value = selectedSite.url;
+  restrictPathCheckbox.checked = Boolean(selectedSite.pathBoundary);
+  pathBoundaryTouched = false;
+  pathBoundaryInput.value = selectedSite.pathBoundary || deriveBoundaryFromUrlValue(selectedSite.url);
+  updatePathBoundaryFieldVisibility();
+});
+
+restrictPathCheckbox.addEventListener("change", () => {
+  updatePathBoundaryFieldVisibility();
+
+  if (restrictPathCheckbox.checked) {
+    maybePopulatePathBoundaryFromUrl();
+  } else {
+    pathBoundaryTouched = false;
+    pathBoundaryInput.value = "";
+  }
+});
+
+urlInput.addEventListener("blur", () => {
+  maybePopulatePathBoundaryFromUrl();
+});
+
+pathBoundaryInput.addEventListener("input", () => {
+  pathBoundaryTouched = true;
 });
 
 refreshScansButton.addEventListener("click", () => {
@@ -704,4 +849,6 @@ for (const button of tabButtons) {
   });
 }
 
+updatePathBoundaryFieldVisibility();
+void loadScannerConfig();
 void refreshScans();

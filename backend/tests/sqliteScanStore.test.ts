@@ -44,6 +44,7 @@ function createScan(id: string, overrides: Partial<ScanRecord> = {}): ScanRecord
     rootUrl: "https://example.com/",
     origin: "https://example.com",
     hostname: "example.com",
+    pathBoundary: null,
     startTime: "2026-01-01T00:00:00.000Z",
     endTime: "2026-01-01T00:00:01.000Z",
     status: "completed",
@@ -188,6 +189,44 @@ describe("SqliteScanStore", () => {
     await store.close();
 
     expect(previous?.id).toBe("scan-old");
+  });
+
+  it("gets the previous completed scan for the same origin and path boundary", async () => {
+    const tempDir = createTempDir();
+    const store = new SqliteScanStore({
+      databasePath: path.join(tempDir, "store.sqlite")
+    });
+
+    await store.initialize();
+    await store.saveScan(
+      createScan("scan-old-jsna", {
+        endTime: "2026-01-01T00:00:01.000Z",
+        pathBoundary: "/jsna/"
+      })
+    );
+    await store.saveScan(
+      createScan("scan-old-root", {
+        endTime: "2026-01-02T00:00:01.000Z",
+        pathBoundary: null
+      })
+    );
+    await store.saveScan(
+      createScan("scan-current-jsna", {
+        endTime: "2026-01-03T00:00:01.000Z",
+        pathBoundary: "/jsna/"
+      })
+    );
+
+    const previous = await store.getPreviousCompletedScan(
+      "https://example.com",
+      "2026-01-03T00:00:01.000Z",
+      "scan-current-jsna",
+      "/jsna/"
+    );
+
+    await store.close();
+
+    expect(previous?.id).toBe("scan-old-jsna");
   });
 
   it("returns null for a missing scan", async () => {

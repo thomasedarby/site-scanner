@@ -1,7 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { isPrivateOrLocalHostname } from "../security/urlSafety.js";
+import { isPrivateOrLocalHostname, normaliseUrl } from "../security/urlSafety.js";
+import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
+
+export interface ConfiguredSite {
+  name: string;
+  pathBoundary: string | null;
+  url: string;
+}
 
 export interface ScannerConfig {
   allowedDomains: string[];
@@ -12,6 +19,7 @@ export interface ScannerConfig {
   requestTimeoutMs: number;
   stripQueryStrings: boolean;
   respectRobotsTxt: boolean;
+  sites: ConfiguredSite[];
   userAgent: string;
 }
 
@@ -34,6 +42,7 @@ const DEFAULT_SCANNER_CONFIG: ScannerConfig = {
   requestTimeoutMs: 15000,
   stripQueryStrings: true,
   respectRobotsTxt: true,
+  sites: [],
   userAgent: "Internal-SiteScanner/0.1"
 };
 
@@ -93,6 +102,66 @@ function normaliseAllowedDomain(entry: string, index: number): string {
   return lowerCaseEntry;
 }
 
+function normaliseConfiguredSite(
+  entry: unknown,
+  index: number,
+  allowedDomains: string[]
+): ConfiguredSite {
+  if (!isPlainObject(entry)) {
+    throw new Error(`sites[${index}] must be an object`);
+  }
+
+  const name = typeof entry.name === "string" ? entry.name.trim() : "";
+  const rawUrl = typeof entry.url === "string" ? entry.url.trim() : "";
+  const rawPathBoundary = entry.pathBoundary;
+
+  if (name.length === 0) {
+    throw new Error(`sites[${index}].name must be a non-empty string`);
+  }
+
+  if (rawUrl.length === 0) {
+    throw new Error(`sites[${index}].url must be a non-empty string`);
+  }
+
+  let normalizedUrl: URL;
+
+  try {
+    normalizedUrl = normaliseUrl(rawUrl);
+  } catch (error) {
+    throw new Error(
+      `sites[${index}].url is invalid: ${error instanceof Error ? error.message : "Invalid URL"}`
+    );
+  }
+
+  if (isPrivateOrLocalHostname(normalizedUrl.hostname)) {
+    throw new Error(`sites[${index}].url must not use a private/local hostname`);
+  }
+
+  if (!allowedDomains.includes(normalizedUrl.hostname)) {
+    throw new Error(`sites[${index}].url hostname must be present in allowedDomains`);
+  }
+
+  let pathBoundary: string | null = null;
+
+  if (rawPathBoundary !== undefined && rawPathBoundary !== null) {
+    if (typeof rawPathBoundary !== "string") {
+      throw new Error(`sites[${index}].pathBoundary must be a string when provided`);
+    }
+
+    pathBoundary = normalisePathBoundary(rawPathBoundary);
+
+    if (!isPathWithinBoundary(normalizedUrl.pathname, pathBoundary)) {
+      throw new Error(`sites[${index}].pathBoundary must contain the site URL path`);
+    }
+  }
+
+  return {
+    name,
+    pathBoundary,
+    url: normalizedUrl.toString()
+  };
+}
+
 function validateScannerConfigShape(config: unknown): ScannerConfig {
   if (!isPlainObject(config)) {
     throw new Error("scanner config must be a JSON object");
@@ -107,6 +176,7 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
     requestTimeoutMs,
     stripQueryStrings,
     respectRobotsTxt,
+    sites,
     userAgent
   } = config;
 
@@ -145,9 +215,17 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
     throw new Error("respectRobotsTxt must be a boolean");
   }
 
+  if (sites !== undefined && (!Array.isArray(sites))) {
+    throw new Error("sites must be an array when provided");
+  }
+
   if (typeof userAgent !== "string" || userAgent.trim().length === 0) {
     throw new Error("userAgent must be a non-empty string");
   }
+
+  const normalizedSites = (sites ?? []).map((site, index) =>
+    normaliseConfiguredSite(site, index, normalisedAllowedDomains)
+  );
 
   return {
     allowedDomains: normalisedAllowedDomains,
@@ -158,6 +236,7 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
     requestTimeoutMs,
     stripQueryStrings,
     respectRobotsTxt,
+    sites: normalizedSites,
     userAgent
   };
 }

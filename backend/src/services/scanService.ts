@@ -47,6 +47,7 @@ function buildScanRecord(input: {
   hostname: string;
   id: string;
   origin: string;
+  pathBoundary: string | null;
   pages: ScanPage[];
   rootUrl: string;
   startTime: string;
@@ -59,6 +60,7 @@ function buildScanRecord(input: {
     rootUrl: input.rootUrl,
     origin: input.origin,
     hostname: input.hostname,
+    pathBoundary: input.pathBoundary,
     startTime: input.startTime,
     endTime: input.endTime,
     status: input.status,
@@ -115,6 +117,7 @@ export class RealScanService implements ScanService {
       hostname: rootUrl.hostname,
       id: scanId,
       origin: rootUrl.origin,
+      pathBoundary: input.pathBoundary ?? null,
       pages: [],
       rootUrl: rootUrl.toString(),
       startTime,
@@ -129,6 +132,7 @@ export class RealScanService implements ScanService {
         crawlAllowedHostVariants: config.crawlAllowedHostVariants,
         crawlDelayMs: config.crawlDelayMs,
         maxPages: Math.min(input.maxPages, config.maxAllowedPages),
+        pathBoundary: input.pathBoundary ?? null,
         requestTimeoutMs: config.requestTimeoutMs,
         stripQueryStrings: config.stripQueryStrings,
         userAgent: config.userAgent
@@ -143,6 +147,7 @@ export class RealScanService implements ScanService {
         hostname: crawlResult.hostname,
         id: scanId,
         origin: crawlResult.origin,
+        pathBoundary: crawlResult.pathBoundary,
         pages: crawlResult.pages,
         rootUrl: crawlResult.rootUrl,
         startTime,
@@ -166,6 +171,7 @@ export class RealScanService implements ScanService {
         hostname: rootUrl.hostname,
         id: scanId,
         origin: rootUrl.origin,
+        pathBoundary: input.pathBoundary ?? null,
         pages: [],
         rootUrl: rootUrl.toString(),
         startTime,
@@ -202,7 +208,12 @@ export class RealScanService implements ScanService {
       return null;
     }
 
-    const previousScan = await this.store.getPreviousCompletedScan(scan.origin, scan.endTime, scan.id);
+    const previousScan = await this.store.getPreviousCompletedScan(
+      scan.origin,
+      scan.endTime,
+      scan.id,
+      scan.pathBoundary
+    );
     return compareScans(scan, previousScan);
   }
 }

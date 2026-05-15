@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import type { LoadedScannerConfig } from "../config/scannerConfig.js";
+import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
 import { ScanExecutionError, type ScanService } from "../services/scanService.js";
 import type { ScanSummary } from "../types/scan.js";
@@ -83,10 +84,38 @@ function validateMaxPages(rawMaxPages: unknown, scannerConfig: LoadedScannerConf
   return rawMaxPages as number;
 }
 
+function validatePathBoundary(rawPathBoundary: unknown, submittedUrl: URL): string | null {
+  if (rawPathBoundary === undefined || rawPathBoundary === null || rawPathBoundary === "") {
+    return null;
+  }
+
+  if (typeof rawPathBoundary !== "string") {
+    throw new Error("pathBoundary must be a string when provided");
+  }
+
+  const normalizedBoundary = normalisePathBoundary(rawPathBoundary);
+
+  if (!isPathWithinBoundary(submittedUrl.pathname, normalizedBoundary)) {
+    throw new Error("pathBoundary must contain the submitted URL path");
+  }
+
+  return normalizedBoundary;
+}
+
 export async function registerScanRoutes(
   app: FastifyInstance,
   dependencies: ScansRouteDependencies
 ) {
+  app.get("/api/scanner-config", async () => {
+    const scannerConfig = dependencies.loadScannerConfig();
+
+    return {
+      defaultMaxPages: scannerConfig.defaultMaxPages,
+      maxAllowedPages: scannerConfig.maxAllowedPages,
+      sites: scannerConfig.sites
+    };
+  });
+
   app.post("/api/scans", async (request, reply) => {
     const scannerConfig = dependencies.loadScannerConfig();
 
@@ -97,12 +126,14 @@ export async function registerScanRoutes(
       });
     }
 
-    const body = (request.body ?? {}) as { maxPages?: unknown; url?: unknown };
+    const body = (request.body ?? {}) as { maxPages?: unknown; pathBoundary?: unknown; url?: unknown };
 
     try {
       const normalizedUrl = validateSubmittedUrl(body.url, scannerConfig);
       const maxPages = validateMaxPages(body.maxPages, scannerConfig);
+      const pathBoundary = validatePathBoundary(body.pathBoundary, normalizedUrl);
       const scan = await dependencies.scanService.createScan({
+        pathBoundary,
         url: normalizedUrl.toString(),
         maxPages
       }, scannerConfig);

@@ -33,6 +33,7 @@ function writeScannerConfig(tempDir: string, allowedDomains: unknown) {
       requestTimeoutMs: 5000,
       stripQueryStrings: true,
       respectRobotsTxt: true,
+      sites: [],
       userAgent: "Test-Agent/1.0"
     })
   );
@@ -56,6 +57,7 @@ describe("loadScannerConfig", () => {
         requestTimeoutMs: 5000,
         stripQueryStrings: true,
         respectRobotsTxt: false,
+        sites: [],
         userAgent: "Test-Agent/1.0"
       })
     );
@@ -130,6 +132,7 @@ describe("loadScannerConfig", () => {
         requestTimeoutMs: 5000,
         stripQueryStrings: true,
         respectRobotsTxt: true,
+        sites: [],
         userAgent: "Test-Agent/1.0"
       })
     );
@@ -256,5 +259,113 @@ describe("loadScannerConfig", () => {
         env: {}
       })
     ).toThrow("allowedDomains[0] must not be empty");
+  });
+
+  it("accepts configured sites with a valid path boundary", () => {
+    const tempDir = createTempDir();
+    const configPath = path.join(tempDir, "scanner.config.json");
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        allowedDomains: ["observatory.derbyshire.gov.uk", "www.observatory.derbyshire.gov.uk"],
+        crawlAllowedHostVariants: true,
+        defaultMaxPages: 100,
+        maxAllowedPages: 200,
+        crawlDelayMs: 250,
+        requestTimeoutMs: 5000,
+        stripQueryStrings: true,
+        respectRobotsTxt: true,
+        sites: [
+          {
+            name: "JSNA",
+            url: "https://observatory.derbyshire.gov.uk/jsna/",
+            pathBoundary: "/jsna"
+          }
+        ],
+        userAgent: "Test-Agent/1.0"
+      })
+    );
+
+    const config = loadScannerConfig({
+      cwd: tempDir,
+      env: {}
+    });
+
+    expect(config.sites).toEqual([
+      {
+        name: "JSNA",
+        url: "https://observatory.derbyshire.gov.uk/jsna/",
+        pathBoundary: "/jsna/"
+      }
+    ]);
+  });
+
+  it("rejects an invalid configured site path boundary", () => {
+    const tempDir = createTempDir();
+    const configPath = path.join(tempDir, "scanner.config.json");
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        allowedDomains: ["observatory.derbyshire.gov.uk"],
+        crawlAllowedHostVariants: true,
+        defaultMaxPages: 100,
+        maxAllowedPages: 200,
+        crawlDelayMs: 250,
+        requestTimeoutMs: 5000,
+        stripQueryStrings: true,
+        respectRobotsTxt: true,
+        sites: [
+          {
+            name: "Bad boundary",
+            url: "https://observatory.derbyshire.gov.uk/jsna/",
+            pathBoundary: "https://observatory.derbyshire.gov.uk/jsna/"
+          }
+        ],
+        userAgent: "Test-Agent/1.0"
+      })
+    );
+
+    expect(() =>
+      loadScannerConfig({
+        cwd: tempDir,
+        env: {}
+      })
+    ).toThrow("pathBoundary must be a path only");
+  });
+
+  it("rejects configured site URLs whose hostname is not allowlisted", () => {
+    const tempDir = createTempDir();
+    const configPath = path.join(tempDir, "scanner.config.json");
+
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        allowedDomains: ["observatory.derbyshire.gov.uk"],
+        crawlAllowedHostVariants: true,
+        defaultMaxPages: 100,
+        maxAllowedPages: 200,
+        crawlDelayMs: 250,
+        requestTimeoutMs: 5000,
+        stripQueryStrings: true,
+        respectRobotsTxt: true,
+        sites: [
+          {
+            name: "Wrong host",
+            url: "https://www.observatory.derbyshire.gov.uk/jsna/",
+            pathBoundary: "/jsna/"
+          }
+        ],
+        userAgent: "Test-Agent/1.0"
+      })
+    );
+
+    expect(() =>
+      loadScannerConfig({
+        cwd: tempDir,
+        env: {}
+      })
+    ).toThrow("sites[0].url hostname must be present in allowedDomains");
   });
 });

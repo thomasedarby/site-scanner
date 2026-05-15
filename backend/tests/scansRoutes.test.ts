@@ -20,6 +20,7 @@ function createScannerConfig(overrides: Partial<LoadedScannerConfig> = {}): Load
     requestTimeoutMs: 15000,
     stripQueryStrings: true,
     respectRobotsTxt: true,
+    sites: [],
     userAgent: "Internal-SiteScanner/0.1",
     configPath: "/tmp/scanner.config.json",
     scanCreationAllowed: true,
@@ -84,6 +85,7 @@ describe("scan routes", () => {
           rootUrl,
           origin: new URL(rootUrl).origin,
           hostname: new URL(rootUrl).hostname,
+          pathBoundary: null,
           pages: [
             createPage({
               url: rootUrl,
@@ -176,6 +178,7 @@ describe("scan routes", () => {
         rootUrl,
         origin: "https://example.com",
         hostname: "example.com",
+        pathBoundary: null,
         pages: [
           createPage({
             url: rootUrl,
@@ -213,6 +216,7 @@ describe("scan routes", () => {
     expect(response.statusCode).toBe(201);
     expect(payload.id).toBeTypeOf("string");
     expect(payload.rootUrl).toBe("https://example.com/path");
+    expect(payload.pathBoundary).toBeNull();
     expect(payload.status).toBe("completed");
     expect(payload.mermaidSitemap).toBeUndefined();
     expect(payload.links).toEqual({
@@ -222,6 +226,36 @@ describe("scan routes", () => {
       sitemap: `/api/scans/${payload.id}/sitemap.mmd`
     });
     expect(detailResponse.json().pages).toHaveLength(2);
+  });
+
+  it("returns configured sites for the frontend", async () => {
+    const { app } = await createTestApp({
+      scannerConfig: createScannerConfig({
+        sites: [
+          {
+            name: "JSNA",
+            url: "https://observatory.derbyshire.gov.uk/jsna/",
+            pathBoundary: "/jsna/"
+          }
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/scanner-config"
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().sites).toEqual([
+      {
+        name: "JSNA",
+        url: "https://observatory.derbyshire.gov.uk/jsna/",
+        pathBoundary: "/jsna/"
+      }
+    ]);
   });
 
   it("accepts a scan URL without a protocol and normalizes it to https", async () => {
@@ -239,6 +273,71 @@ describe("scan routes", () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json().rootUrl).toBe("https://example.com/");
+  });
+
+  it("accepts a valid pathBoundary and persists it", async () => {
+    const { app } = await createTestApp({
+      crawlImpl: async (rootUrl) => ({
+        rootUrl,
+        origin: "https://example.com",
+        hostname: "example.com",
+        pathBoundary: "/jsna/",
+        pages: [
+          createPage({
+            url: "https://example.com/jsna/",
+            normalizedUrl: "https://example.com/jsna/",
+            path: "/jsna"
+          }),
+          createPage({
+            url: "https://example.com/jsna/page-one/",
+            normalizedUrl: "https://example.com/jsna/page-one/",
+            path: "/jsna/page-one/",
+            parentUrl: "https://example.com/jsna/",
+            contentHash: "hash-page-one"
+          })
+        ]
+      })
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/jsna/",
+        maxPages: 10,
+        pathBoundary: "/jsna"
+      }
+    });
+    const payload = response.json();
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/api/scans/${payload.id}`
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(201);
+    expect(payload.pathBoundary).toBe("/jsna/");
+    expect(detailResponse.json().pathBoundary).toBe("/jsna/");
+    expect(detailResponse.json().pages).toHaveLength(2);
+  });
+
+  it("rejects a pathBoundary that does not contain the submitted URL path", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/jsna/",
+        pathBoundary: "/about/"
+      }
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain("pathBoundary must contain the submitted URL path");
   });
 
   it("list scans reads from storage", async () => {
@@ -270,6 +369,7 @@ describe("scan routes", () => {
         rootUrl,
         origin: "https://example.com",
         hostname: "example.com",
+        pathBoundary: null,
         pages: [
           createPage({
             url: rootUrl,
@@ -308,6 +408,7 @@ describe("scan routes", () => {
         rootUrl,
         origin: "https://example.com",
         hostname: "example.com",
+        pathBoundary: null,
         pages: [
           createPage({
             url: rootUrl,
@@ -356,6 +457,7 @@ describe("scan routes", () => {
           rootUrl,
           origin: "https://example.com",
           hostname: "example.com",
+          pathBoundary: null,
           pages: callCount === 1
             ? [
                 createPage({

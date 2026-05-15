@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { load } from "cheerio";
 
+import { isPathWithinBoundary, normalisePathBoundary } from "../security/pathBoundary.js";
 import { isAllowedDomain, isPrivateOrLocalHostname, isSameOrigin, normaliseUrl, shouldSkipUrl } from "../security/urlSafety.js";
 import type { ScanPage } from "../types/scan.js";
 import type { CrawlRequest, CrawlResult, CrawlerDependencies, FetchLike, FetchResponseLike } from "./types.js";
@@ -56,6 +57,10 @@ interface QueueItem {
   url: URL;
 }
 
+function normalizeRequestPathBoundary(pathBoundary: string | null): string | null {
+  return pathBoundary ? normalisePathBoundary(pathBoundary) : null;
+}
+
 function getAllowedBoundaryHostnames(
   rootHostname: string,
   allowedDomains: string[],
@@ -94,6 +99,14 @@ function isWithinCrawlBoundary(
   }
 
   return isSameOrigin(candidateUrl, rootUrl.origin);
+}
+
+function isWithinPathBoundary(candidateUrl: URL, pathBoundary: string | null): boolean {
+  if (!pathBoundary) {
+    return true;
+  }
+
+  return isPathWithinBoundary(candidateUrl.pathname, pathBoundary);
 }
 
 function getPathExtension(url: URL): string {
@@ -159,6 +172,7 @@ async function fetchHtmlWithRedirectChecks(
   rootUrl: URL,
   request: CrawlRequest,
   boundaryHostnames: Set<string>,
+  pathBoundary: string | null,
   fetchImpl: FetchLike
 ): Promise<{ body: string; finalUrl: URL; response: FetchResponseLike }> {
   let currentUrl = url;
@@ -186,7 +200,8 @@ async function fetchHtmlWithRedirectChecks(
           shouldSkipUrl(nextUrl.toString()) ||
           isPrivateOrLocalHostname(nextUrl.hostname) ||
           !isAllowedDomain(nextUrl, request.config.allowedDomains) ||
-          !isWithinCrawlBoundary(nextUrl, rootUrl, request, boundaryHostnames)
+          !isWithinCrawlBoundary(nextUrl, rootUrl, request, boundaryHostnames) ||
+          !isWithinPathBoundary(nextUrl, pathBoundary)
         ) {
           throw new Error(`Redirect target is not allowed: ${nextUrl.toString()}`);
         }
@@ -209,7 +224,8 @@ async function fetchHtmlWithRedirectChecks(
       if (
         isPrivateOrLocalHostname(finalUrl.hostname) ||
         !isAllowedDomain(finalUrl, request.config.allowedDomains) ||
-        !isWithinCrawlBoundary(finalUrl, rootUrl, request, boundaryHostnames)
+        !isWithinCrawlBoundary(finalUrl, rootUrl, request, boundaryHostnames) ||
+        !isWithinPathBoundary(finalUrl, pathBoundary)
       ) {
         throw new Error(`Final response URL is not allowed: ${finalUrl.toString()}`);
       }
@@ -231,13 +247,18 @@ function classifyAnchorUrl(
   candidateUrl: URL,
   rootUrl: URL,
   request: CrawlRequest,
-  boundaryHostnames: Set<string>
+  boundaryHostnames: Set<string>,
+  pathBoundary: string | null
 ): "internal-page" | "internal-document" | "external" | "skip" {
   if (isPrivateOrLocalHostname(candidateUrl.hostname)) {
     return "skip";
   }
 
   if (!isWithinCrawlBoundary(candidateUrl, rootUrl, request, boundaryHostnames)) {
+    return "external";
+  }
+
+  if (!isWithinPathBoundary(candidateUrl, pathBoundary)) {
     return "external";
   }
 
@@ -274,6 +295,12 @@ export class CrawlerService {
       throw new Error("Root URL hostname is not in allowedDomains");
     }
 
+    const pathBoundary = normalizeRequestPathBoundary(request.config.pathBoundary);
+
+    if (pathBoundary && !isPathWithinBoundary(rootUrl.pathname, pathBoundary)) {
+      throw new Error("Root URL path is outside the configured pathBoundary");
+    }
+
     const boundaryHostnames = getAllowedBoundaryHostnames(
       rootUrl.hostname,
       request.config.allowedDomains,
@@ -296,6 +323,7 @@ export class CrawlerService {
           rootUrl,
           request,
           boundaryHostnames,
+          pathBoundary,
           this.fetchImpl
         );
         const $ = load(body);
@@ -324,7 +352,13 @@ export class CrawlerService {
             return;
           }
 
-          const classification = classifyAnchorUrl(candidateUrl, rootUrl, request, boundaryHostnames);
+          const classification = classifyAnchorUrl(
+            candidateUrl,
+            rootUrl,
+            request,
+            boundaryHostnames,
+            pathBoundary
+          );
 
           if (classification === "external") {
             externalLinkCount += 1;
@@ -386,6 +420,7 @@ export class CrawlerService {
       rootUrl: rootUrl.toString(),
       origin: rootUrl.origin,
       hostname: rootUrl.hostname,
+      pathBoundary,
       pages
     };
   }

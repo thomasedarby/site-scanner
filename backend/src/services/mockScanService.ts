@@ -77,6 +77,7 @@ export class MockScanService {
       rootUrl: rootUrl.toString(),
       origin: rootUrl.origin,
       hostname: rootUrl.hostname,
+      pathBoundary: input.pathBoundary ?? null,
       startTime: now,
       endTime: now,
       status: "completed",

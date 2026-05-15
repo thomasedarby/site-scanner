@@ -32,6 +32,14 @@
         <h2>New Scan</h2>
         <form id="scan-form" class="scan-form">
           <label class="field">
+            <span>Configured Site</span>
+            <select id="site-select" name="siteSelect">
+              <option value="">Custom URL</option>
+            </select>
+            <small id="site-select-help">Choose a configured section scan, or leave this on Custom URL.</small>
+          </label>
+
+          <label class="field">
             <span>Website URL</span>
             <input id="url" name="url" type="text" placeholder="parksmarter.org.uk" required>
             <small>You can enter a hostname without typing <code>https://</code>.</small>
@@ -40,6 +48,17 @@
           <label class="field">
             <span>Max Pages</span>
             <input id="maxPages" name="maxPages" type="number" min="1" step="1" placeholder="Optional">
+          </label>
+
+          <label class="checkbox-row">
+            <input id="restrict-path" name="restrictPath" type="checkbox">
+            <span>Restrict crawl to this URL path</span>
+          </label>
+
+          <label id="path-boundary-field" class="field hidden">
+            <span>Path Boundary</span>
+            <input id="pathBoundary" name="pathBoundary" type="text" placeholder="/jsna/">
+            <small>Use this to keep the crawl inside a section such as <code>/jsna/</code>.</small>
           </label>
 
           <div class="actions">
@@ -87,11 +106,11 @@
           </div>
 
           <section class="subsection">
-            <div class="panel-header">
-              <div>
-                <h3>Pages</h3>
-                <p class="panel-copy">Filter, copy, or download the page list for this scan.</p>
-              </div>
+          <div class="panel-header">
+            <div>
+              <h3>Pages</h3>
+              <p class="panel-copy">Filter, copy, or download the page list for this scan.</p>
+            </div>
             </div>
 
             <div class="toolbar">

@@ -31,6 +31,7 @@ function createScan(id: string, pages: ScanPage[]): ScanRecord {
     rootUrl: "https://example.com/",
     origin: "https://example.com",
     hostname: "example.com",
+    pathBoundary: null,
     startTime: "2026-01-01T00:00:00.000Z",
     endTime: "2026-01-01T00:00:01.000Z",
     status: "completed",

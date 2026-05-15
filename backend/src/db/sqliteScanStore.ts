@@ -34,6 +34,7 @@ interface ScanSummaryRow {
   id: string;
   mermaid_sitemap: string;
   origin: string;
+  path_boundary: string | null;
   pages_missing_meta_description: number;
   pages_missing_title: number;
   pages_with_no_h1: number;
@@ -62,6 +63,7 @@ function mapSummaryRow(row: ScanSummaryRow): ScanSummary {
     rootUrl: row.root_url,
     origin: row.origin,
     hostname: row.hostname,
+    pathBoundary: row.path_boundary,
     startTime: row.start_time,
     endTime: row.end_time,
     status: row.status,
@@ -202,6 +204,14 @@ export class SqliteScanStore {
     writeFileSync(this.databasePath, Buffer.from(database.export()));
   }
 
+  private static hasColumn(database: Database, tableName: string, columnName: string) {
+    const columns = getRows<{ name: string }>(
+      database.exec(`PRAGMA table_info(${tableName})`)
+    );
+
+    return columns.some((column) => column.name === columnName);
+  }
+
   async initialize() {
     const database = await this.getDatabase();
 
@@ -211,6 +221,7 @@ export class SqliteScanStore {
         root_url TEXT NOT NULL,
         origin TEXT NOT NULL,
         hostname TEXT NOT NULL,
+        path_boundary TEXT,
         start_time TEXT NOT NULL,
         end_time TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -252,6 +263,10 @@ export class SqliteScanStore {
       ON scans(origin, end_time DESC);
     `);
 
+    if (!SqliteScanStore.hasColumn(database, "scans", "path_boundary")) {
+      database.run("ALTER TABLE scans ADD COLUMN path_boundary TEXT");
+    }
+
     await this.persist();
   }
 
@@ -277,17 +292,18 @@ export class SqliteScanStore {
       database.run(
         `
           INSERT INTO scans (
-            id, root_url, origin, hostname, start_time, end_time, status,
+            id, root_url, origin, hostname, path_boundary, start_time, end_time, status,
             total_pages_crawled, total_images_found, total_documents_linked,
             broken_internal_links, pages_missing_title, pages_missing_meta_description,
             pages_with_no_h1, mermaid_sitemap, error_message
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           scan.id,
           scan.rootUrl,
           scan.origin,
           scan.hostname,
+          scan.pathBoundary,
           scan.startTime,
           scan.endTime,
           scan.status,
@@ -380,7 +396,8 @@ export class SqliteScanStore {
   async getPreviousCompletedScan(
     origin: string,
     beforeEndTime: string,
-    excludeScanId?: string
+    excludeScanId?: string,
+    pathBoundary: string | null = null
   ): Promise<ScanRecord | null> {
     const database = await this.getDatabase();
     const rows = excludeScanId
@@ -392,10 +409,14 @@ export class SqliteScanStore {
                 AND status = 'completed'
                 AND end_time < ?
                 AND id != ?
+                AND (
+                  (path_boundary = ?)
+                  OR (path_boundary IS NULL AND ? IS NULL)
+                )
               ORDER BY end_time DESC, id DESC
               LIMIT 1
             `,
-            [origin, beforeEndTime, excludeScanId]
+            [origin, beforeEndTime, excludeScanId, pathBoundary, pathBoundary]
           )
         )
       : getRows<ScanSummaryRow>(
@@ -405,10 +426,14 @@ export class SqliteScanStore {
               WHERE origin = ?
                 AND status = 'completed'
                 AND end_time < ?
+                AND (
+                  (path_boundary = ?)
+                  OR (path_boundary IS NULL AND ? IS NULL)
+                )
               ORDER BY end_time DESC, id DESC
               LIMIT 1
             `,
-            [origin, beforeEndTime]
+            [origin, beforeEndTime, pathBoundary, pathBoundary]
           )
         );
 
