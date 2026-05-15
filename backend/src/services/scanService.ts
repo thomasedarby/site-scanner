@@ -18,6 +18,7 @@ export interface ScanService {
   close?(): Promise<void>;
   compareScan(id: string): Promise<ScanComparison | null>;
   createScan(input: CreateScanInput, config: LoadedScannerConfig): Promise<ScanSummary>;
+  deleteScan(id: string): Promise<"running" | { id: string } | null>;
   getPagesCsv(id: string): Promise<string | null>;
   getScan(id: string): Promise<ScanRecord | null>;
   getScanStatus(id: string): Promise<ScanStatus | null>;
@@ -431,6 +432,25 @@ export class RealScanService implements ScanService {
 
   async getScan(id: string) {
     return this.store.getScanById(id);
+  }
+
+  async deleteScan(id: string) {
+    const runningState = this.runningScans.get(id);
+
+    if (runningState && (runningState.status === "queued" || runningState.status === "running")) {
+      return "running";
+    }
+
+    const scan = await this.store.getScanById(id);
+
+    if (!scan) {
+      return null;
+    }
+
+    await this.store.deleteScan(id);
+    this.runningScans.delete(id);
+
+    return { id };
   }
 
   async getScanStatus(id: string) {

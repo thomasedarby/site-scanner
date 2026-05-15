@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Report</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="report-body">
+    <main class="page report-page">
+      <section class="panel report-panel">
+        <div class="panel-header report-toolbar no-print">
+          <div>
+            <p class="eyebrow">Scan Report</p>
+            <h1>Printable scan summary</h1>
+            <p class="panel-copy">Use your browser’s print dialog to save this report as a PDF.</p>
+          </div>
+          <div class="actions">
+            <button id="print-report-button" type="button">Print / Save as PDF</button>
+            <a class="button tertiary" href="/">Back to Dashboard</a>
+          </div>
+        </div>
+
+        <div id="report-error" class="message error hidden" role="alert"></div>
+        <div id="report-loading" class="loading">Loading report...</div>
+
+        <div id="report-content" class="hidden">
+          <header class="report-header">
+            <div>
+              <p class="eyebrow">Internal Website Scanner</p>
+              <h2 id="report-title">Scan report</h2>
+              <p id="report-subtitle" class="panel-copy"></p>
+            </div>
+            <div class="report-meta">
+              <p><strong>Report exported on</strong><br><span id="report-exported-at"></span></p>
+              <p><strong>Scan ID</strong><br><span id="report-scan-id"></span></p>
+            </div>
+          </header>
+
+          <dl id="report-summary" class="summary-grid report-summary"></dl>
+
+          <section class="subsection report-section">
+            <div class="panel-header">
+              <div>
+                <h3>Page List</h3>
+                <p class="panel-copy">Stored page rows included in this scan result.</p>
+              </div>
+            </div>
+
+            <div class="table-shell report-table-shell">
+              <table class="page-table report-table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th>H1</th>
+                    <th>Images</th>
+                    <th>Documents</th>
+                    <th>Words</th>
+                    <th>Missing Meta</th>
+                    <th>Crawl Error</th>
+                  </tr>
+                </thead>
+                <tbody id="report-page-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/report.js"></script>
+  </body>
+</html>

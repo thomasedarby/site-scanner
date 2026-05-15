@@ -199,8 +199,8 @@ If you want the older strict behavior, set:
 
 - `New Scan` lets users start a scan with a hostname or full URL.
 - `New Scan` can also use configured site presets and an optional path boundary.
-- `Results` shows live scan status while a scan is running, then the stored summary, including the path boundary used, the page table, CSV links, and sitemap actions.
-- `Previous Scans` lists stored scans and lets users reopen them in the Results tab.
+- `Results` shows live scan status while a scan is running, then the stored summary, including the path boundary used, the page table, CSV access, inline sitemap viewing, and PDF export.
+- `Previous Scans` lists stored scans and lets users reopen them, open the sitemap viewer, export a printable report, or delete stored scans.
 
 ### URL entry
 
@@ -234,15 +234,29 @@ If the site is configured in `scanner.config.json`, selecting that preset fills 
 - The Results tab shows a filterable page table.
 - `Copy Page List` copies the current page rows as tab-separated text.
 - `Download CSV` uses the stored CSV export for the full page list.
+- The same CSV remains available from the API at `GET /api/scans/:id/pages.csv`.
+
+### Previous scan cleanup
+
+- The `Previous Scans` tab includes a `Delete` action for stored scans.
+- Deleting a scan removes both the stored scan summary and its stored page rows.
+- Running scans cannot be deleted while they are still in progress.
 
 ### Sitemap viewing
 
 - `Open Sitemap` opens a larger full-page viewer in a new tab.
-- The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, and attempts PNG export in the browser.
+- The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, download SVG, and attempts PNG export in the browser.
 - If the browser blocks PNG export, the viewer falls back to SVG download with a friendly message.
 - SVG is the most reliable scalable export format for Mermaid sitemaps. PNG is generated client-side in the browser.
 - `View Diagram Inline` keeps the existing in-page Mermaid preview for quick checks.
+- Mermaid copy and download actions live in the sitemap viewer rather than the main Results action row.
 - Large diagrams may need horizontal or vertical scrolling.
+
+### PDF export
+
+- `Export PDF Report` opens a dedicated printable report page for the selected scan.
+- Use the browser’s `Print / Save as PDF` action on that page to save the report as a PDF.
+- The printable report includes the stored scan summary, export timestamp, and full stored page table.
 
 ## Rebuild and Redeploy
 
@@ -278,5 +292,6 @@ npm run build
 - There is no authentication yet.
 - `respectRobotsTxt` is present in config but not implemented in the crawler yet.
 - Mermaid rendering and client-side PNG export depend on browser support and the Mermaid CDN being reachable.
+- PDF export uses the browser’s own print/save flow rather than server-side PDF generation.
 - Path boundaries only limit which pages are crawled. Links outside the boundary may still be counted as links on in-boundary pages.
 - Previous scans loaded from storage do not currently preserve every transient request setting in the summary view, such as the requested page cap, unless they came from the current POST response.

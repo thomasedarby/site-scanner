@@ -105,13 +105,9 @@
 
           <div class="link-row">
             <a id="details-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Details JSON</a>
-            <a id="compare-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Compare</a>
-            <a id="csv-link" class="button secondary" href="#" target="_blank" rel="noreferrer">CSV Download</a>
-            <a id="sitemap-download-link" class="button secondary" href="#" target="_blank" rel="noreferrer">Download Mermaid</a>
             <button id="open-sitemap-viewer" class="button secondary" type="button">Open Sitemap</button>
             <button id="view-sitemap" class="button tertiary" type="button">View Diagram Inline</button>
-            <button id="copy-sitemap" class="button tertiary" type="button">Copy Mermaid</button>
-            <button id="toggle-raw-sitemap" class="button tertiary hidden" type="button">Show Mermaid Text</button>
+            <button id="export-pdf-report" class="button tertiary" type="button">Export PDF Report</button>
           </div>
 
           <div id="sitemap-panel" class="sitemap-panel hidden">
@@ -120,17 +116,14 @@
             <div id="sitemap-diagram-shell" class="diagram-shell hidden">
               <div id="sitemap-diagram" class="diagram-canvas"></div>
             </div>
-            <div id="sitemap-raw-shell" class="raw-shell hidden">
-              <pre id="sitemap-output"></pre>
-            </div>
           </div>
 
           <section class="subsection">
-          <div class="panel-header">
-            <div>
-              <h3>Pages</h3>
-              <p class="panel-copy">Filter, copy, or download the page list for this scan.</p>
-            </div>
+            <div class="panel-header">
+              <div>
+                <h3>Pages</h3>
+                <p class="panel-copy">Filter, copy, or download the page list for this scan.</p>
+              </div>
             </div>
 
             <div class="toolbar">

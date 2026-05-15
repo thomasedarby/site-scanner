@@ -32,21 +32,15 @@ const scanProgressBar = document.getElementById("scan-progress-bar");
 const scanProgressText = document.getElementById("scan-progress-text");
 const summaryGrid = document.getElementById("summary-grid");
 const detailsLink = document.getElementById("details-link");
-const csvLink = document.getElementById("csv-link");
 const pagesCsvLink = document.getElementById("pages-csv-link");
-const sitemapDownloadLink = document.getElementById("sitemap-download-link");
-const compareLink = document.getElementById("compare-link");
 const viewSitemapButton = document.getElementById("view-sitemap");
 const openSitemapViewerButton = document.getElementById("open-sitemap-viewer");
-const copySitemapButton = document.getElementById("copy-sitemap");
-const toggleRawSitemapButton = document.getElementById("toggle-raw-sitemap");
+const exportPdfReportButton = document.getElementById("export-pdf-report");
 const sitemapPanel = document.getElementById("sitemap-panel");
 const sitemapLoading = document.getElementById("sitemap-loading");
 const sitemapError = document.getElementById("sitemap-error");
 const sitemapDiagramShell = document.getElementById("sitemap-diagram-shell");
 const sitemapDiagram = document.getElementById("sitemap-diagram");
-const sitemapRawShell = document.getElementById("sitemap-raw-shell");
-const sitemapOutput = document.getElementById("sitemap-output");
 const refreshScansButton = document.getElementById("refresh-scans");
 const scanList = document.getElementById("scan-list");
 const scanListEmpty = document.getElementById("scan-list-empty");
@@ -112,6 +106,19 @@ function buildSitemapViewerUrl(scanId) {
   }
 
   return viewerUrl.toString();
+}
+
+function buildReportViewerUrl(scanId) {
+  const reportUrl = new URL("/report.html", window.location.href);
+  reportUrl.searchParams.set("id", scanId);
+
+  const baseUrl = normaliseApiBaseUrl(API_BASE_URL);
+
+  if (baseUrl) {
+    reportUrl.searchParams.set("apiBase", baseUrl);
+  }
+
+  return reportUrl.toString();
 }
 
 function setHidden(element, hidden) {
@@ -258,15 +265,11 @@ function clearSitemapState() {
   sitemapSource = "";
   sitemapLoadedForScanId = null;
   sitemapDiagram.innerHTML = "";
-  sitemapOutput.textContent = "";
   sitemapError.textContent = "";
   setHidden(sitemapError, true);
   setHidden(sitemapPanel, true);
   setHidden(sitemapLoading, true);
   setHidden(sitemapDiagramShell, true);
-  setHidden(sitemapRawShell, true);
-  setHidden(toggleRawSitemapButton, true);
-  toggleRawSitemapButton.textContent = "Show Mermaid Text";
   viewSitemapButton.textContent = "View Diagram Inline";
 }
 
@@ -488,10 +491,7 @@ function renderCurrentScan() {
   }
 
   detailsLink.href = joinApi(links.details);
-  csvLink.href = joinApi(links.csv);
   pagesCsvLink.href = joinApi(links.csv);
-  sitemapDownloadLink.href = joinApi(links.sitemap);
-  compareLink.href = joinApi(links.compare);
 
   latestScanEmpty.classList.add("hidden");
   latestScanContainer.classList.remove("hidden");
@@ -712,11 +712,10 @@ function renderScansList(items) {
             ${scan.pathBoundary ? `<br>${escapeHtml(`Path boundary: ${scan.pathBoundary}`)}` : ""}
           </div>
           <div class="scan-links">
-            <button class="button tertiary open-scan-button" type="button" data-scan-id="${escapeHtml(scan.id)}">Open Result</button>
-            <a class="button tertiary" href="${joinApi(links.details)}" target="_blank" rel="noreferrer">Details</a>
-            <a class="button tertiary" href="${joinApi(links.csv)}" target="_blank" rel="noreferrer">CSV</a>
+            <button class="button tertiary open-scan-button" type="button" data-scan-id="${escapeHtml(scan.id)}">View Results</button>
             <a class="button tertiary" href="${buildSitemapViewerUrl(scan.id)}" target="_blank" rel="noreferrer">Open Sitemap</a>
-            <a class="button tertiary" href="${joinApi(links.compare)}" target="_blank" rel="noreferrer">Compare</a>
+            <a class="button tertiary" href="${buildReportViewerUrl(scan.id)}" target="_blank" rel="noreferrer">Export PDF Report</a>
+            <button class="button tertiary delete-scan-button" type="button" data-scan-id="${escapeHtml(scan.id)}" ${scan.status === "queued" || scan.status === "running" ? "disabled" : ""}>Delete</button>
           </div>
         </li>
       `;
@@ -736,6 +735,12 @@ function renderScansList(items) {
       void loadScanIntoResults(selectedScan).catch((error) => {
         showError(error instanceof Error ? error.message : "Failed to load scan details");
       });
+    });
+  }
+
+  for (const button of scanList.querySelectorAll(".delete-scan-button")) {
+    button.addEventListener("click", () => {
+      void deleteScan(button.dataset.scanId);
     });
   }
 
@@ -778,18 +783,12 @@ async function ensureSitemapLoaded() {
   setHidden(sitemapLoading, false);
   setHidden(sitemapError, true);
   setHidden(sitemapDiagramShell, true);
-  setHidden(sitemapRawShell, true);
-  setHidden(toggleRawSitemapButton, true);
   sitemapDiagram.innerHTML = "";
-  sitemapOutput.textContent = "";
   viewSitemapButton.disabled = true;
-  copySitemapButton.disabled = true;
-  toggleRawSitemapButton.disabled = true;
   viewSitemapButton.textContent = "Loading Diagram...";
 
   try {
     sitemapSource = await fetchText(links.sitemap);
-    sitemapOutput.textContent = sitemapSource;
     sitemapLoadedForScanId = currentScanSummary.id;
     return true;
   } catch (error) {
@@ -800,8 +799,6 @@ async function ensureSitemapLoaded() {
   } finally {
     setHidden(sitemapLoading, true);
     viewSitemapButton.disabled = false;
-    copySitemapButton.disabled = false;
-    toggleRawSitemapButton.disabled = false;
   }
 }
 
@@ -830,7 +827,6 @@ async function showSitemapDiagram() {
     await renderSitemapDiagram(sitemapSource);
     setHidden(sitemapPanel, false);
     setHidden(sitemapDiagramShell, false);
-    setHidden(toggleRawSitemapButton, false);
     viewSitemapButton.textContent = "Hide Inline Diagram";
   } catch (error) {
     sitemapError.textContent = error instanceof Error
@@ -841,29 +837,6 @@ async function showSitemapDiagram() {
   } finally {
     viewSitemapButton.disabled = false;
   }
-}
-
-async function copySitemapSource() {
-  clearError();
-
-  const loaded = await ensureSitemapLoaded();
-
-  if (!loaded || !sitemapSource) {
-    return;
-  }
-
-  try {
-    await copyText(sitemapSource);
-    showSuccess("Mermaid source copied.");
-  } catch (error) {
-    showError(error instanceof Error ? error.message : "Failed to copy Mermaid source");
-  }
-}
-
-function toggleRawSitemap() {
-  const willShow = sitemapRawShell.classList.contains("hidden");
-  setHidden(sitemapRawShell, !willShow);
-  toggleRawSitemapButton.textContent = willShow ? "Hide Mermaid Text" : "Show Mermaid Text";
 }
 
 function buildPageExportText(pages) {
@@ -914,6 +887,49 @@ function openSitemapViewer() {
   }
 
   window.open(buildSitemapViewerUrl(currentScanSummary.id), "_blank", "noopener");
+}
+
+function openReportViewer(scanId = currentScanSummary?.id) {
+  if (!scanId) {
+    return;
+  }
+
+  window.open(buildReportViewerUrl(scanId), "_blank", "noopener");
+}
+
+async function deleteScan(scanId) {
+  if (!scanId) {
+    return;
+  }
+
+  const confirmed = window.confirm("Delete this scan and its stored page results?");
+
+  if (!confirmed) {
+    return;
+  }
+
+  clearError();
+  clearSuccess();
+
+  try {
+    await fetchJson(`/api/scans/${scanId}`, {
+      method: "DELETE"
+    });
+
+    if (currentScanSummary?.id === scanId) {
+      stopStatusPolling();
+      resetCurrentScanView();
+      renderCurrentScan();
+      switchTab("previous-scans");
+      showSuccess("This scan has been deleted.");
+    } else {
+      showSuccess("Scan deleted.");
+    }
+
+    await refreshScans();
+  } catch (error) {
+    showError(error instanceof Error ? error.message : "Failed to delete scan");
+  }
 }
 
 form.addEventListener("submit", async (event) => {
@@ -1013,12 +1029,8 @@ openSitemapViewerButton.addEventListener("click", () => {
   openSitemapViewer();
 });
 
-copySitemapButton.addEventListener("click", () => {
-  void copySitemapSource();
-});
-
-toggleRawSitemapButton.addEventListener("click", () => {
-  toggleRawSitemap();
+exportPdfReportButton.addEventListener("click", () => {
+  openReportViewer();
 });
 
 copyPagesButton.addEventListener("click", () => {

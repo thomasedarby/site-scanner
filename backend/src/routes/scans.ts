@@ -174,6 +174,26 @@ export async function registerScanRoutes(
     return scan;
   });
 
+  app.delete("/api/scans/:id", async (request, reply) => {
+    const result = await dependencies.scanService.deleteScan((request.params as { id: string }).id);
+
+    if (result === "running") {
+      return reply.code(409).send({
+        error: "Conflict",
+        message: "Cannot delete a running scan"
+      });
+    }
+
+    if (!result) {
+      return sendNotFound(reply);
+    }
+
+    return {
+      id: result.id,
+      message: "Scan deleted"
+    };
+  });
+
   app.get("/api/scans/:id/pages.csv", async (request, reply) => {
     const csv = await dependencies.scanService.getPagesCsv((request.params as { id: string }).id);
 

@@ -472,6 +472,150 @@ describe("scan routes", () => {
     expect(response.json().items[0].status).toBe("completed");
   });
 
+  it("deletes a completed scan and removes it from the list", async () => {
+    const { app } = await createTestApp();
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/delete-me"
+      }
+    });
+    const scan = createResponse.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/scans/${scan.id}`
+    });
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/api/scans"
+    });
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/api/scans/${scan.id}`
+    });
+
+    await app.close();
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json()).toEqual({
+      id: scan.id,
+      message: "Scan deleted"
+    });
+    expect(listResponse.json().items).toEqual([]);
+    expect(detailResponse.statusCode).toBe(404);
+  });
+
+  it("deletes a failed scan", async () => {
+    const { app } = await createTestApp({
+      crawlImpl: async () => {
+        throw new Error("Upstream fetch failed");
+      }
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/fails"
+      }
+    });
+    const scan = createResponse.json();
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "failed"
+    );
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/scans/${scan.id}`
+    });
+
+    await app.close();
+
+    expect(deleteResponse.statusCode).toBe(200);
+    expect(deleteResponse.json().message).toBe("Scan deleted");
+  });
+
+  it("returns 404 when deleting a missing scan", async () => {
+    const { app } = await createTestApp();
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/api/scans/missing-scan"
+    });
+
+    await app.close();
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json().message).toBe("Scan not found");
+  });
+
+  it("rejects deleting a running scan", async () => {
+    const deferred = deferredPromise<CrawlResult>();
+    const { app } = await createTestApp({
+      crawlImpl: async () => deferred.promise
+    });
+
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/api/scans",
+      payload: {
+        url: "https://example.com/running"
+      }
+    });
+    const scan = createResponse.json();
+
+    const deleteResponse = await app.inject({
+      method: "DELETE",
+      url: `/api/scans/${scan.id}`
+    });
+
+    deferred.resolve({
+      rootUrl: "https://example.com/running",
+      origin: "https://example.com",
+      hostname: "example.com",
+      pathBoundary: null,
+      pages: [createPage({
+        url: "https://example.com/running",
+        normalizedUrl: "https://example.com/running",
+        path: "/running",
+        finalUrl: "https://example.com/running",
+        contentHash: "hash-running"
+      })]
+    });
+
+    await waitFor(
+      async () =>
+        (await app.inject({
+          method: "GET",
+          url: `/api/scans/${scan.id}/status`
+        })).json(),
+      (status) => status.status === "completed"
+    );
+
+    await app.close();
+
+    expect(deleteResponse.statusCode).toBe(409);
+    expect(deleteResponse.json().message).toBe("Cannot delete a running scan");
+  });
+
   it("csv endpoint uses stored page data", async () => {
     const { app } = await createTestApp({
       crawlImpl: async (rootUrl) => ({
