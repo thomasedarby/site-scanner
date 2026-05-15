@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
+import { isPrivateOrLocalHostname } from "../security/urlSafety.js";
+
 export interface ScannerConfig {
   allowedDomains: string[];
   defaultMaxPages: number;
@@ -33,6 +35,11 @@ const DEFAULT_SCANNER_CONFIG: ScannerConfig = {
   userAgent: "Internal-SiteScanner/0.1"
 };
 
+const HOSTNAME_PATTERN =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i;
+
+const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -41,6 +48,47 @@ function assertInteger(name: string, value: unknown, minimum: number): asserts v
   if (!Number.isInteger(value) || (value as number) < minimum) {
     throw new Error(`${name} must be an integer greater than or equal to ${minimum}`);
   }
+}
+
+function normaliseAllowedDomain(entry: string, index: number): string {
+  const trimmedEntry = entry.trim();
+
+  if (trimmedEntry.length === 0) {
+    throw new Error(`allowedDomains[${index}] must not be empty`);
+  }
+
+  if (/\s/.test(trimmedEntry)) {
+    throw new Error(`allowedDomains[${index}] must not contain whitespace`);
+  }
+
+  const lowerCaseEntry = trimmedEntry.toLowerCase();
+
+  if (
+    lowerCaseEntry.includes("://") ||
+    lowerCaseEntry.includes("/") ||
+    lowerCaseEntry.includes("?") ||
+    lowerCaseEntry.includes("#") ||
+    lowerCaseEntry.includes("@")
+  ) {
+    throw new Error(`allowedDomains[${index}] must be a plain hostname without URL parts`);
+  }
+
+  if (lowerCaseEntry.includes(":")) {
+    throw new Error(`allowedDomains[${index}] must not include a port or colon`);
+  }
+
+  const isHostname = HOSTNAME_PATTERN.test(lowerCaseEntry);
+  const isIpv4 = IPV4_PATTERN.test(lowerCaseEntry);
+
+  if (!isHostname && !isIpv4) {
+    throw new Error(`allowedDomains[${index}] must be a valid hostname`);
+  }
+
+  if (isPrivateOrLocalHostname(lowerCaseEntry)) {
+    throw new Error(`allowedDomains[${index}] must not be localhost or a private/local address`);
+  }
+
+  return lowerCaseEntry;
 }
 
 function validateScannerConfigShape(config: unknown): ScannerConfig {
@@ -61,6 +109,15 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
 
   if (!Array.isArray(allowedDomains) || !allowedDomains.every((value) => typeof value === "string")) {
     throw new Error("allowedDomains must be an array of strings");
+  }
+
+  const normalisedAllowedDomains = allowedDomains.map((value, index) =>
+    normaliseAllowedDomain(value, index)
+  );
+  const uniqueAllowedDomains = new Set(normalisedAllowedDomains);
+
+  if (uniqueAllowedDomains.size !== normalisedAllowedDomains.length) {
+    throw new Error("allowedDomains must not contain duplicates after normalization");
   }
 
   assertInteger("defaultMaxPages", defaultMaxPages, 1);
@@ -86,7 +143,7 @@ function validateScannerConfigShape(config: unknown): ScannerConfig {
   }
 
   return {
-    allowedDomains,
+    allowedDomains: normalisedAllowedDomains,
     defaultMaxPages,
     maxAllowedPages,
     crawlDelayMs,
@@ -157,4 +214,3 @@ export function loadScannerConfig(
     scanCreationAllowed: validatedConfig.allowedDomains.length > 0
   };
 }
-
