@@ -46,6 +46,13 @@ export interface ScanComparison {
   addedUrls: string[];
   removedUrls: string[];
   changedUrls: string[];
+  changedStatusUrls?: string[];
+  summary?: {
+    addedPages: number;
+    removedPages: number;
+    changedPages: number;
+    changedStatusPages: number;
+  };
 }
 
 export interface CreateScanInput {
