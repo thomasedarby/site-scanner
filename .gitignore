@@ -9,8 +9,8 @@ build/
 coverage/
 
 # Runtime data
-data/
-reports/
+/data/
+/reports/
 *.sqlite
 *.sqlite3
 *.db
