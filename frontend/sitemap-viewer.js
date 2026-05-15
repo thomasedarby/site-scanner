@@ -8,6 +8,7 @@ mermaid.initialize({
 
 const EXPORTED_STYLE_PROPERTIES = [
   "fill",
+  "color",
   "stroke",
   "stroke-width",
   "stroke-linecap",
@@ -21,10 +22,14 @@ const EXPORTED_STYLE_PROPERTIES = [
   "font-style",
   "text-anchor",
   "dominant-baseline",
+  "alignment-baseline",
   "letter-spacing",
   "word-spacing",
   "paint-order"
 ];
+
+const SVG_TEXT_TAGS = new Set(["text", "tspan", "textpath"]);
+const DEFAULT_EXPORT_TEXT_FILL = "#222222";
 
 const params = new URLSearchParams(window.location.search);
 const scanId = params.get("id");
@@ -118,6 +123,92 @@ function getRenderedSvg() {
   return diagramContainer.querySelector("svg");
 }
 
+function isTransparentColor(value) {
+  const normalizedValue = String(value || "").trim().toLowerCase();
+
+  return (
+    normalizedValue === "" ||
+    normalizedValue === "transparent" ||
+    normalizedValue === "rgba(0, 0, 0, 0)" ||
+    normalizedValue === "hsla(0, 0%, 0%, 0)" ||
+    normalizedValue === "none"
+  );
+}
+
+function isWhiteLikeColor(value) {
+  const normalizedValue = String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+
+  return normalizedValue === "#fff" ||
+    normalizedValue === "#ffffff" ||
+    normalizedValue === "white" ||
+    normalizedValue === "rgb(255,255,255)" ||
+    normalizedValue === "rgba(255,255,255,1)";
+}
+
+function applyExportTextFallbacks(sourceNode, clonedNode, computedStyle) {
+  const tagName = clonedNode.tagName.toLowerCase();
+
+  if (!SVG_TEXT_TAGS.has(tagName)) {
+    return;
+  }
+
+  const computedFill = computedStyle.getPropertyValue("fill");
+  const computedColor = computedStyle.getPropertyValue("color");
+  const existingFill = clonedNode.style.fill || clonedNode.getAttribute("fill") || computedFill || computedColor;
+  const chosenFill = isTransparentColor(existingFill) || isWhiteLikeColor(existingFill)
+    ? DEFAULT_EXPORT_TEXT_FILL
+    : existingFill;
+
+  clonedNode.style.fill = chosenFill;
+  clonedNode.setAttribute("fill", chosenFill);
+
+  const fontFamily = computedStyle.getPropertyValue("font-family");
+  const fontSize = computedStyle.getPropertyValue("font-size");
+  const fontWeight = computedStyle.getPropertyValue("font-weight");
+  const fontStyle = computedStyle.getPropertyValue("font-style");
+  const textAnchor = computedStyle.getPropertyValue("text-anchor");
+  const dominantBaseline = computedStyle.getPropertyValue("dominant-baseline");
+  const alignmentBaseline = computedStyle.getPropertyValue("alignment-baseline");
+  const opacity = computedStyle.getPropertyValue("opacity");
+
+  if (fontFamily) {
+    clonedNode.style.fontFamily = fontFamily;
+  }
+
+  if (fontSize) {
+    clonedNode.style.fontSize = fontSize;
+  }
+
+  if (fontWeight) {
+    clonedNode.style.fontWeight = fontWeight;
+  }
+
+  if (fontStyle) {
+    clonedNode.style.fontStyle = fontStyle;
+  }
+
+  if (textAnchor) {
+    clonedNode.style.textAnchor = textAnchor;
+  }
+
+  if (dominantBaseline) {
+    clonedNode.style.dominantBaseline = dominantBaseline;
+  }
+
+  if (alignmentBaseline) {
+    clonedNode.style.alignmentBaseline = alignmentBaseline;
+  }
+
+  if (opacity && !isTransparentColor(opacity)) {
+    clonedNode.style.opacity = opacity;
+  }
+
+  // Preserve Mermaid label text exactly on leaf text nodes while forcing readable exported paint.
+  if (sourceNode.children.length === 0 && sourceNode.textContent !== null) {
+    clonedNode.textContent = sourceNode.textContent;
+  }
+}
+
 function inlineComputedStyles(sourceElement, clonedElement) {
   const sourceNodes = [sourceElement, ...sourceElement.querySelectorAll("*")];
   const clonedNodes = [clonedElement, ...clonedElement.querySelectorAll("*")];
@@ -142,6 +233,8 @@ function inlineComputedStyles(sourceElement, clonedElement) {
     if (inlineStyle) {
       clonedNode.setAttribute("style", inlineStyle);
     }
+
+    applyExportTextFallbacks(sourceNode, clonedNode, computedStyle);
   }
 }
 
