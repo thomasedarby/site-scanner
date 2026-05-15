@@ -1,6 +1,6 @@
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 
-const API_BASE_URL = window.API_BASE_URL || "http://localhost:8080";
+const API_BASE_URL = typeof window.API_BASE_URL === "string" ? window.API_BASE_URL : "";
 
 mermaid.initialize({
   startOnLoad: false,
@@ -42,8 +42,21 @@ let sitemapSource = "";
 let sitemapLoadedForScanId = null;
 let renderSequence = 0;
 
+function normaliseApiBaseUrl(value) {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue === "" || trimmedValue === "/") {
+    return "";
+  }
+
+  return trimmedValue.replace(/\/+$/, "");
+}
+
 function joinApi(path) {
-  return `${API_BASE_URL}${path}`;
+  const normalisedPath = path.startsWith("/") ? path : `/${path}`;
+  const baseUrl = normaliseApiBaseUrl(API_BASE_URL);
+
+  return baseUrl ? `${baseUrl}${normalisedPath}` : normalisedPath;
 }
 
 function setHidden(element, hidden) {
@@ -161,12 +174,23 @@ function renderSummary(scan) {
 }
 
 async function fetchJson(path, options) {
-  const response = await fetch(joinApi(path), {
-    headers: {
-      "Content-Type": "application/json"
-    },
-    ...options
-  });
+  let response;
+
+  try {
+    response = await fetch(joinApi(path), {
+      headers: {
+        "Content-Type": "application/json"
+      },
+      ...options
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? `Could not reach the API. ${error.message}`
+        : "Could not reach the API."
+    );
+  }
+
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json")
     ? await response.json()
@@ -258,7 +282,18 @@ async function ensureSitemapLoaded() {
   viewSitemapButton.textContent = "Loading Diagram...";
 
   try {
-    const response = await fetch(joinApi(latestScan.links.sitemap));
+    let response;
+
+    try {
+      response = await fetch(joinApi(latestScan.links.sitemap));
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `Could not reach the API. ${error.message}`
+          : "Could not reach the API."
+      );
+    }
+
     const text = await response.text();
 
     if (!response.ok) {
