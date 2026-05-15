@@ -6,11 +6,32 @@ mermaid.initialize({
   securityLevel: "strict"
 });
 
+const EXPORTED_STYLE_PROPERTIES = [
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "letter-spacing",
+  "word-spacing",
+  "paint-order"
+];
+
 const params = new URLSearchParams(window.location.search);
 const scanId = params.get("id");
 const apiBaseOverride = params.get("apiBase") ?? "";
 
 const errorBox = document.getElementById("viewer-error");
+const messageBox = document.getElementById("viewer-message");
 const loadingState = document.getElementById("viewer-loading");
 const diagramContainer = document.getElementById("viewer-diagram");
 const sourceShell = document.getElementById("viewer-raw-shell");
@@ -46,9 +67,25 @@ function setHidden(element, hidden) {
   element.classList.toggle("hidden", hidden);
 }
 
+function clearStatusMessages() {
+  errorBox.textContent = "";
+  messageBox.textContent = "";
+  setHidden(errorBox, true);
+  setHidden(messageBox, true);
+}
+
 function showError(message) {
+  messageBox.textContent = "";
+  setHidden(messageBox, true);
   errorBox.textContent = message;
   setHidden(errorBox, false);
+}
+
+function showMessage(message) {
+  errorBox.textContent = "";
+  setHidden(errorBox, true);
+  messageBox.textContent = message;
+  setHidden(messageBox, false);
 }
 
 async function copyText(text) {
@@ -77,15 +114,123 @@ function downloadBlob(filename, blob) {
   URL.revokeObjectURL(url);
 }
 
-async function downloadPng() {
-  const svgElement = diagramContainer.querySelector("svg");
+function getRenderedSvg() {
+  return diagramContainer.querySelector("svg");
+}
+
+function inlineComputedStyles(sourceElement, clonedElement) {
+  const sourceNodes = [sourceElement, ...sourceElement.querySelectorAll("*")];
+  const clonedNodes = [clonedElement, ...clonedElement.querySelectorAll("*")];
+
+  for (let index = 0; index < sourceNodes.length; index += 1) {
+    const sourceNode = sourceNodes[index];
+    const clonedNode = clonedNodes[index];
+
+    if (!sourceNode || !clonedNode) {
+      continue;
+    }
+
+    const computedStyle = window.getComputedStyle(sourceNode);
+    const inlineStyle = EXPORTED_STYLE_PROPERTIES
+      .map((property) => {
+        const value = computedStyle.getPropertyValue(property);
+        return value ? `${property}:${value};` : "";
+      })
+      .filter(Boolean)
+      .join("");
+
+    if (inlineStyle) {
+      clonedNode.setAttribute("style", inlineStyle);
+    }
+  }
+}
+
+function sanitiseSvgForExport(svgElement) {
+  const exportedSvg = svgElement.cloneNode(true);
+  const renderedWidth = svgElement.viewBox.baseVal.width || svgElement.getBoundingClientRect().width || 1200;
+  const renderedHeight = svgElement.viewBox.baseVal.height || svgElement.getBoundingClientRect().height || 800;
+
+  exportedSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  exportedSvg.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  exportedSvg.setAttribute("width", String(Math.ceil(renderedWidth)));
+  exportedSvg.setAttribute("height", String(Math.ceil(renderedHeight)));
+
+  if (!exportedSvg.getAttribute("viewBox")) {
+    exportedSvg.setAttribute("viewBox", `0 0 ${Math.ceil(renderedWidth)} ${Math.ceil(renderedHeight)}`);
+  }
+
+  inlineComputedStyles(svgElement, exportedSvg);
+
+  for (const node of exportedSvg.querySelectorAll("script, foreignObject")) {
+    node.remove();
+  }
+
+  for (const styleNode of exportedSvg.querySelectorAll("style")) {
+    styleNode.remove();
+  }
+
+  for (const node of exportedSvg.querySelectorAll("*")) {
+    node.removeAttribute("class");
+    node.removeAttribute("tabindex");
+    node.removeAttribute("aria-labelledby");
+    node.removeAttribute("aria-describedby");
+
+    if (node.tagName.toLowerCase() === "a") {
+      node.removeAttribute("href");
+      node.removeAttribute("xlink:href");
+      node.removeAttribute("target");
+      node.removeAttribute("rel");
+    }
+
+    if (node.tagName.toLowerCase() === "image" || node.tagName.toLowerCase() === "use") {
+      node.removeAttribute("href");
+      node.removeAttribute("xlink:href");
+    }
+  }
+
+  const backgroundRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  backgroundRect.setAttribute("x", "0");
+  backgroundRect.setAttribute("y", "0");
+  backgroundRect.setAttribute("width", "100%");
+  backgroundRect.setAttribute("height", "100%");
+  backgroundRect.setAttribute("fill", "#ffffff");
+  exportedSvg.insertBefore(backgroundRect, exportedSvg.firstChild);
+
+  return {
+    height: Math.max(1, Math.ceil(renderedHeight)),
+    svgMarkup: `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(exportedSvg)}`,
+    width: Math.max(1, Math.ceil(renderedWidth))
+  };
+}
+
+function downloadSvg() {
+  clearStatusMessages();
+
+  const svgElement = getRenderedSvg();
 
   if (!svgElement) {
     showError("The rendered diagram is not available yet.");
     return;
   }
 
-  const svgMarkup = new XMLSerializer().serializeToString(svgElement);
+  const { svgMarkup } = sanitiseSvgForExport(svgElement);
+  downloadBlob(
+    `scan-${scanId || "sitemap"}.svg`,
+    new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" })
+  );
+}
+
+async function downloadPng() {
+  clearStatusMessages();
+
+  const svgElement = getRenderedSvg();
+
+  if (!svgElement) {
+    showError("The rendered diagram is not available yet.");
+    return;
+  }
+
+  const { svgMarkup, width, height } = sanitiseSvgForExport(svgElement);
   const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
   const objectUrl = URL.createObjectURL(svgBlob);
 
@@ -100,8 +245,6 @@ async function downloadPng() {
     });
 
     const scale = window.devicePixelRatio > 1 ? window.devicePixelRatio : 1;
-    const width = Math.max(1, svgElement.viewBox.baseVal.width || svgElement.getBoundingClientRect().width);
-    const height = Math.max(1, svgElement.viewBox.baseVal.height || svgElement.getBoundingClientRect().height);
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(width * scale);
     canvas.height = Math.ceil(height * scale);
@@ -117,35 +260,28 @@ async function downloadPng() {
     context.fillRect(0, 0, width, height);
     context.drawImage(image, 0, 0, width, height);
 
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((result) => {
+        if (result) {
+          resolve(result);
+          return;
+        }
 
-    if (!blob) {
-      throw new Error("PNG export did not produce an image.");
-    }
+        reject(new Error("The browser did not produce a PNG image."));
+      }, "image/png");
+    });
 
     downloadBlob(`scan-${scanId || "sitemap"}.png`, blob);
-  } catch (error) {
-    showError(
-      error instanceof Error
-        ? `PNG export failed. Downloading SVG instead. ${error.message}`
-        : "PNG export failed. Downloading SVG instead."
+    showMessage("PNG downloaded.");
+  } catch {
+    downloadBlob(
+      `scan-${scanId || "sitemap"}.svg`,
+      new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" })
     );
-    downloadSvg();
+    showMessage("PNG export was blocked by the browser, so an SVG has been downloaded instead.");
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
-}
-
-function downloadSvg() {
-  const svgElement = diagramContainer.querySelector("svg");
-
-  if (!svgElement) {
-    showError("The rendered diagram is not available yet.");
-    return;
-  }
-
-  const svgMarkup = new XMLSerializer().serializeToString(svgElement);
-  downloadBlob(`scan-${scanId || "sitemap"}.svg`, new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" }));
 }
 
 async function initializeViewer() {
@@ -177,7 +313,11 @@ async function initializeViewer() {
 }
 
 copyMermaidButton.addEventListener("click", () => {
+  clearStatusMessages();
   void copyText(sitemapSource)
+    .then(() => {
+      showMessage("Mermaid source copied.");
+    })
     .catch((error) => {
       showError(error instanceof Error ? error.message : "Failed to copy Mermaid source");
     });

@@ -170,8 +170,8 @@ The backend will normalize those to `https://...` automatically.
 ### Sitemap viewing
 
 - `Open Sitemap` opens a larger full-page viewer in a new tab.
-- The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, and attempt a PNG download.
-- If PNG export fails in the browser, the viewer falls back to SVG download.
+- The full-page viewer renders the Mermaid diagram, lets you copy Mermaid, download Mermaid, and attempts PNG export in the browser.
+- If the browser blocks PNG export, the viewer falls back to SVG download with a friendly message.
 - `View Diagram Inline` keeps the existing in-page Mermaid preview for quick checks.
 - Large diagrams may need horizontal or vertical scrolling.
 
@@ -208,5 +208,5 @@ npm run build
 - Scans run synchronously inside the POST request, so larger scans take longer to return.
 - There is no authentication yet.
 - `respectRobotsTxt` is present in config but not implemented in the crawler yet.
-- Mermaid rendering and PNG export depend on browser support and the Mermaid CDN being reachable.
+- Mermaid rendering and client-side PNG export depend on browser support and the Mermaid CDN being reachable.
 - Previous scans loaded from storage do not currently preserve every transient request setting in the summary view, such as the requested page cap, unless they came from the current POST response.
